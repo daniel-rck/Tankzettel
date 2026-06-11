@@ -1,0 +1,12 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  ci:
+    uses: daniel-rck/web-base/.github/workflows/web-app-ci.yml@main
+
+  web-base-check:
+    uses: daniel-rck/web-base/.github/workflows/web-base-check.yml@main
+    with:
+      ref: v0.2.0

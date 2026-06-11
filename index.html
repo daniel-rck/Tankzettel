@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Tankzettel</title>
+    <meta name="description" content="Tankbelege erfassen und auswerten — lokal, ohne Konto" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <script>
+      (() => {
+        try {
+          const t = localStorage.getItem("theme");
+          if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+name = "tankzettel"
+main = "worker/index.ts"
+compatibility_date = "2026-06-11"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+# Uncomment when adding R2/KV (see sync template):
+# [[r2_buckets]]
+# binding = "SYNC"
+# bucket_name = "<app-name>-sync"
+#
+# [[kv_namespaces]]
+# binding = "SYNC_KV"
+# id = "<kv-namespace-id>"

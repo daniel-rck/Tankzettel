@@ -228,7 +228,11 @@ online (one code path).
   **sequentially** (free-tier RPM is low), oldest first, only while
   `navigator.onLine` and a key exists.
 - **Backoff**: on 429/5xx, delay `min(2 ** attempts, 8)` minutes before the
-  job becomes eligible again; after **5** attempts → `failed`.
+  job becomes eligible again; after **5** attempts → `failed`. Eligibility is
+  tracked in-memory (the `ScanJob` schema stays sync-compatible); after an
+  app restart pending jobs are simply eligible again. Network errors don't
+  consume attempts — they are retried on the `online` event (plus a gentle
+  30 s timer for "online but unreachable" cases).
 - **Review**: success sets `result` + `status: "review"`. Confirming a review
   card creates the `FuelEntry` (`source: "scan"`) and deletes the job —
   including its `image` Blob, unless `keep-photos` is on (then the job is
@@ -271,7 +275,7 @@ German feature folder names (family convention, cf. Hausverwaltung).
 | `/` | `features/erfassen` | scan area, queue, review cards, manual entry | `Camera` |
 | `/belege` | `features/belege` | entry list, delete, totals footer, CSV export | `ReceiptText` |
 | `/auswertung` | `features/auswertung` | KPIs + charts | `ChartLine` |
-| `/einstellungen` | `features/einstellungen` | API key (+test), model id, keep-photos, JSON backup/restore, danger zone (delete all) | `Settings` |
+| `/einstellungen` | `features/einstellungen` | API key (+test), model id, JSON backup/restore, privacy note, danger zone (delete all) | `Settings` |
 
 `AppShell` with these four `NavItem`s; bottom-nav on mobile per layout system.
 List rows and review cards use the shared `Card`/`Button`/`Badge`/`EmptyState`
@@ -366,8 +370,8 @@ in `beforeEach`. Required coverage:
 
 | # | Question | Current stance |
 |---|---|---|
-| 1 | Gemini model id | `gemini-2.5-flash` as default; verify current free-tier id when implementing; user-overridable in settings |
-| 2 | `keep-photos` setting | data model supports it; ship **hidden/off** in v1 unless trivially done — a photo archive UI is v2 |
+| 1 | Gemini model id | **Decided (2026-06-11):** `gemini-2.5-flash` verified as a stable, free-tier-eligible id in the Gemini API docs; default constant in `src/lib/gemini/model.ts`, user-overridable in settings |
+| 2 | `keep-photos` setting | **Decided:** ships **hidden/off** in v1 — `src/lib/settings.ts` supports the flag, but no UI and nothing retains the photo after confirm (a photo archive UI is v2) |
 | 3 | Web Share Target ("share photo → Tankzettel") | v2; needs `share_target` manifest entry + SW `fetch` handler enqueueing into `scanQueue` — injectManifest makes this possible, design before building |
 | 4 | Multi-vehicle | out of scope; if it ever comes, add `vehicleId` to `FuelEntry` + a vehicles store and partition the consumption calc |
 | 5 | Sync (web-base `sync` template) | not in v1; `updatedAt` already maintained for future LWW merge |
