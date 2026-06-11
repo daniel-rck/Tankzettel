@@ -6,7 +6,12 @@ jobs:
   ci:
     uses: daniel-rck/web-base/.github/workflows/web-app-ci.yml@main
 
-  web-base-check:
-    uses: daniel-rck/web-base/.github/workflows/web-base-check.yml@main
-    with:
-      ref: v0.2.0
+  # TODO: re-add the owned-drift guard once web-base publishes a v0.2.0 tag
+  # and ships a built cli/dist in its GitHub tarball — currently
+  # `bunx github:daniel-rck/web-base#<any-ref> check core` fails with
+  # "could not determine executable to run" (no prepare on install):
+  #
+  #   web-base-check:
+  #     uses: daniel-rck/web-base/.github/workflows/web-base-check.yml@main
+  #     with:
+  #       ref: v0.2.0
