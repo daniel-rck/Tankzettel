@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatCurrency,
   formatDate,
+  formatDecimalInput,
   formatLiters,
   formatMonthLabel,
   formatPricePerLiter,
@@ -12,6 +13,25 @@ import {
 function plain(value: string): string {
   return value.replace(/\s/g, " ");
 }
+
+describe("formatDecimalInput", () => {
+  it("renders a comma decimal without rounding or grouping", () => {
+    expect(formatDecimalInput(46.92)).toBe("46,92");
+    expect(formatDecimalInput(1.699)).toBe("1,699");
+    expect(formatDecimalInput(123456)).toBe("123456");
+  });
+
+  it("renders empty for missing values", () => {
+    expect(formatDecimalInput(null)).toBe("");
+    expect(formatDecimalInput(undefined)).toBe("");
+  });
+
+  it("round-trips through parseDecimal", () => {
+    for (const value of [46.92, 1.699, 123456, 0.001]) {
+      expect(parseDecimal(formatDecimalInput(value))).toBe(value);
+    }
+  });
+});
 
 describe("parseDecimal", () => {
   it("parses dot decimals", () => {

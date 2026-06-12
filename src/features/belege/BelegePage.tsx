@@ -1,5 +1,6 @@
-import { Download, ReceiptText, Trash2 } from "lucide-react";
-import { deleteEntry, sortNewestFirst } from "../../lib/db/entries.ts";
+import { Download, Pencil, ReceiptText, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { deleteEntry, sortNewestFirst, updateEntry } from "../../lib/db/entries.ts";
 import { getDB, useLiveQuery } from "../../lib/db/index.ts";
 import type { FuelEntry } from "../../lib/db/types.ts";
 import { Badge, Button, Card, EmptyState, PageHeader } from "../../lib/ui/index.ts";
@@ -11,6 +12,7 @@ import {
   formatLiters,
   formatPricePerLiter,
 } from "../../lib/utils/format.ts";
+import { ReviewCard } from "../erfassen/ReviewCard.tsx";
 
 function downloadFile(content: string, filename: string, mimeType: string): void {
   const blob = new Blob([content], { type: mimeType });
@@ -22,7 +24,7 @@ function downloadFile(content: string, filename: string, mimeType: string): void
   URL.revokeObjectURL(url);
 }
 
-function EntryRow({ entry }: { entry: FuelEntry }) {
+function EntryRow({ entry, onEdit }: { entry: FuelEntry; onEdit: () => void }) {
   function handleDelete(): void {
     if (window.confirm("Diesen Beleg wirklich löschen?")) {
       void deleteEntry(entry.id);
@@ -59,6 +61,9 @@ function EntryRow({ entry }: { entry: FuelEntry }) {
           </p>
         ) : null}
       </div>
+      <Button variant="ghost" size="sm" aria-label="Beleg bearbeiten" onClick={onEdit}>
+        <Pencil size={16} aria-hidden="true" />
+      </Button>
       <Button variant="ghost" size="sm" aria-label="Beleg löschen" onClick={handleDelete}>
         <Trash2 size={16} aria-hidden="true" />
       </Button>
@@ -67,6 +72,7 @@ function EntryRow({ entry }: { entry: FuelEntry }) {
 }
 
 export function BelegePage() {
+  const [editingId, setEditingId] = useState<string | null>(null);
   const { data } = useLiveQuery("entries", async () => {
     const db = await getDB();
     return sortNewestFirst(await db.getAll("entries"));
@@ -102,9 +108,26 @@ export function BelegePage() {
       ) : (
         <Card className="py-1">
           <ul>
-            {entries.map((entry) => (
-              <EntryRow key={entry.id} entry={entry} />
-            ))}
+            {entries.map((entry) =>
+              entry.id === editingId ? (
+                <li
+                  key={entry.id}
+                  className="border-b border-dashed border-border py-3 last:border-b-0"
+                >
+                  <ReviewCard
+                    entry={entry}
+                    source={entry.source}
+                    onSave={async (updated) => {
+                      await updateEntry(updated);
+                      setEditingId(null);
+                    }}
+                    onDiscard={() => setEditingId(null)}
+                  />
+                </li>
+              ) : (
+                <EntryRow key={entry.id} entry={entry} onEdit={() => setEditingId(entry.id)} />
+              ),
+            )}
           </ul>
           <div className="flex items-center justify-between border-t border-border pt-3 pb-2 text-sm">
             <span className="text-fg-muted">Gesamt</span>

@@ -45,8 +45,8 @@ app lists all fill-ups and computes price/cost/consumption analytics.
 2. **Offline scan**: same, but extraction waits in the queue until the app is
    online again. The photo is safely persisted in IndexedDB meanwhile.
 3. **Manual entry**: "Manuell erfassen" opens the same review card empty.
-4. **Browse**: Belege page lists entries (newest first), allows delete and
-   CSV export.
+4. **Browse**: Belege page lists entries (newest first), allows inline edit
+   (pencil → review card in place), delete and CSV export.
 5. **Analyze**: Auswertung page shows KPIs + two charts (+ consumption when
    odometer data exists).
 6. **Onboarding**: without an API key everything works except extraction; the
@@ -262,6 +262,11 @@ failed jobs, and manual entry.
 - **Duplicate**: if an existing entry has the same `date` and
   `|Δtotal| < 0.01` → inline warning "Möglicherweise schon erfasst." (non-blocking).
 - Saving requires at least `liters` or `total` to be a valid number.
+- **Edit**: the same card edits saved entries inline on the Belege page
+  (`entry` prop, one entry at a time): all fields prefill incl. odometer,
+  `id`/`createdAt`/`source` are preserved, `updatedAt` is bumped via
+  `updateEntry()`, the duplicate check excludes the entry itself, and the
+  primary action reads "Speichern" instead of "Übernehmen".
 
 ---
 
@@ -273,7 +278,7 @@ German feature folder names (family convention, cf. Hausverwaltung).
 | Route | Folder | Page | Nav icon (lucide) |
 |---|---|---|---|
 | `/` | `features/erfassen` | scan area, queue, review cards, manual entry | `Camera` |
-| `/belege` | `features/belege` | entry list, delete, totals footer, CSV export | `ReceiptText` |
+| `/belege` | `features/belege` | entry list, edit, delete, totals footer, CSV export | `ReceiptText` |
 | `/auswertung` | `features/auswertung` | KPIs + charts | `ChartLine` |
 | `/einstellungen` | `features/einstellungen` | API key (+test), model id, JSON backup/restore, privacy note, danger zone (delete all) | `Settings` |
 

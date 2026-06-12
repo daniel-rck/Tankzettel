@@ -42,6 +42,10 @@ describe("isLikelyDuplicate", () => {
     expect(isLikelyDuplicate({ date: "2026-03-05", total: null }, existing)).toBe(false);
     expect(isLikelyDuplicate({ date: "2026-03-05", total: 54.67 }, existing, "a")).toBe(false);
   });
+
+  it("still flags duplicates when a different entry is excluded", () => {
+    expect(isLikelyDuplicate({ date: "2026-03-05", total: 54.67 }, existing, "b")).toBe(true);
+  });
 });
 
 describe("canSave", () => {
