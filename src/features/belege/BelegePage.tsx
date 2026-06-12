@@ -129,7 +129,8 @@ export function BelegePage() {
               ),
             )}
           </ul>
-          <div className="flex items-center justify-between border-t border-border pt-3 pb-2 text-sm">
+          {/* bottom-16 clears the fixed mobile bottom nav (main has pb-16). */}
+          <div className="sticky bottom-16 flex items-center justify-between border-t border-border bg-surface pt-3 pb-2 text-sm md:bottom-0">
             <span className="text-fg-muted">Gesamt</span>
             <span className="font-mono tabular-nums">
               {formatLiters(totalLiters)} · {formatCurrency(totalCost)}

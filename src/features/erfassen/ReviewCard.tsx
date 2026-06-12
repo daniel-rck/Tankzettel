@@ -84,6 +84,7 @@ export function ReviewCard({
   const [draft, setDraft] = useState<Draft>(() => toDraft(entry ?? initial));
   const [saving, setSaving] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageExpanded, setImageExpanded] = useState(false);
 
   useEffect(() => {
     if (!image) return;
@@ -163,11 +164,20 @@ export function ReviewCard({
       ) : null}
 
       {imageUrl ? (
-        <img
-          src={imageUrl}
-          alt="Foto des Tankbelegs"
-          className="mb-3 max-h-48 rounded-md border border-border object-contain"
-        />
+        <button
+          type="button"
+          onClick={() => setImageExpanded((current) => !current)}
+          aria-label={imageExpanded ? "Belegfoto verkleinern" : "Belegfoto vergrößern"}
+          className="mb-3 block cursor-zoom-in rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          <img
+            src={imageUrl}
+            alt="Foto des Tankbelegs"
+            className={`rounded-md border border-border object-contain ${
+              imageExpanded ? "max-h-none" : "max-h-48"
+            }`}
+          />
+        </button>
       ) : null}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
