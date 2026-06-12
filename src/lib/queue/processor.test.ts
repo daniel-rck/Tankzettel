@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearAll, getDB } from "../db/index.ts";
 import type { ScanJob } from "../db/types.ts";
-import { drainQueue, resetQueueStateForTests, retryJob } from "./processor.ts";
+import {
+  deleteJob,
+  drainQueue,
+  resetQueueStateForTests,
+  resetStaleProcessingJobs,
+  retryJob,
+} from "./processor.ts";
 
 function setOnline(value: boolean): void {
   Object.defineProperty(globalThis.navigator, "onLine", { value, configurable: true });
@@ -116,6 +122,8 @@ describe("scan queue state machine", () => {
     const updated = await getJob(job.id);
     expect(updated?.status).toBe("failed");
     expect(updated?.lastError).toBe("API-Key ungültig — in den Einstellungen prüfen.");
+    // Non-retryable failures don't inflate the attempt counter.
+    expect(updated?.attempts).toBe(0);
   });
 
   it("unparsable response → failed", async () => {
@@ -199,6 +207,32 @@ describe("scan queue state machine", () => {
     expect(updated?.status).toBe("review");
     expect(updated?.attempts).toBe(0);
     expect(updated?.lastError).toBeNull();
+  });
+
+  it("a job discarded while processing is not resurrected", async () => {
+    let jobId = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () => {
+        // Simulate the user hitting "Scan verwerfen" mid-extraction.
+        await deleteJob(jobId);
+        return geminiResponse({ total: 50 });
+      }),
+    );
+
+    const job = await putJob();
+    jobId = job.id;
+    await drainQueue();
+
+    expect(await getJob(job.id)).toBeUndefined();
+  });
+
+  it("resets jobs stuck in processing from a previous session", async () => {
+    const job = await putJob({ status: "processing" });
+
+    await resetStaleProcessingJobs();
+
+    expect((await getJob(job.id))?.status).toBe("pending");
   });
 
   it("processes jobs sequentially, oldest first", async () => {

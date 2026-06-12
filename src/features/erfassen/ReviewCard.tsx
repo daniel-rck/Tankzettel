@@ -3,7 +3,7 @@ import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { getDB, useLiveQuery } from "../../lib/db/index.ts";
 import type { EntrySource, ExtractionResult, FuelEntry } from "../../lib/db/types.ts";
 import { Badge, Button, Card } from "../../lib/ui/index.ts";
-import { parseDecimal } from "../../lib/utils/format.ts";
+import { formatDecimalInput, parseDecimal } from "../../lib/utils/format.ts";
 import {
   canSave,
   DUPLICATE_WARNING,
@@ -15,6 +15,8 @@ import {
 export type ReviewCardProps = {
   /** Prefill from a scan result; null/undefined renders an empty card. */
   initial?: ExtractionResult | null;
+  /** Edit mode: prefills all fields and preserves id/createdAt/source. */
+  entry?: FuelEntry;
   /** Receipt photo to review against (scan jobs). */
   image?: Blob;
   /** German error message for failed jobs. */
@@ -37,17 +39,19 @@ type Draft = {
   odometer: string;
 };
 
-function toDraft(initial: ExtractionResult | null | undefined): Draft {
+function toDraft(
+  initial: (ExtractionResult & { odometer?: number | null }) | null | undefined,
+): Draft {
   return {
     date: initial?.date ?? "",
     time: initial?.time ?? "",
     station: initial?.station ?? "",
     location: initial?.location ?? "",
     fuelType: initial?.fuelType ?? "",
-    liters: initial?.liters?.toString() ?? "",
-    pricePerLiter: initial?.pricePerLiter?.toString() ?? "",
-    total: initial?.total?.toString() ?? "",
-    odometer: "",
+    liters: formatDecimalInput(initial?.liters),
+    pricePerLiter: formatDecimalInput(initial?.pricePerLiter),
+    total: formatDecimalInput(initial?.total),
+    odometer: formatDecimalInput(initial?.odometer),
   };
 }
 
@@ -68,6 +72,7 @@ const NUMERIC_CLASS = `${INPUT_CLASS} font-mono tabular-nums`;
 
 export function ReviewCard({
   initial,
+  entry,
   image,
   errorMessage,
   source,
@@ -76,9 +81,10 @@ export function ReviewCard({
   onRetry,
 }: ReviewCardProps) {
   const formId = useId();
-  const [draft, setDraft] = useState<Draft>(() => toDraft(initial));
+  const [draft, setDraft] = useState<Draft>(() => toDraft(entry ?? initial));
   const [saving, setSaving] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageExpanded, setImageExpanded] = useState(false);
 
   useEffect(() => {
     if (!image) return;
@@ -99,8 +105,8 @@ export function ReviewCard({
 
   const showPlausibilityWarning = hasPlausibilityIssue(liters, pricePerLiter, total);
   const showDuplicateWarning = useMemo(
-    () => isLikelyDuplicate({ date: draft.date || null, total }, entries ?? []),
-    [draft.date, total, entries],
+    () => isLikelyDuplicate({ date: draft.date || null, total }, entries ?? [], entry?.id),
+    [draft.date, total, entries, entry?.id],
   );
   const saveable = canSave(liters, total);
 
@@ -114,7 +120,7 @@ export function ReviewCard({
     try {
       const now = Date.now();
       await onSave({
-        id: crypto.randomUUID(),
+        id: entry?.id ?? crypto.randomUUID(),
         date: draft.date || null,
         time: draft.time.trim() || null,
         station: draft.station.trim(),
@@ -124,8 +130,8 @@ export function ReviewCard({
         pricePerLiter,
         total,
         odometer,
-        source,
-        createdAt: now,
+        source: entry?.source ?? source,
+        createdAt: entry?.createdAt ?? now,
         updatedAt: now,
       });
     } finally {
@@ -137,10 +143,16 @@ export function ReviewCard({
     <Card aria-labelledby={`${formId}-title`}>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 id={`${formId}-title`} className="text-base font-medium">
-          {source === "manual" ? "Manuell erfassen" : "Beleg prüfen"}
+          {entry ? "Beleg bearbeiten" : source === "manual" ? "Manuell erfassen" : "Beleg prüfen"}
         </h3>
         <Badge variant={errorMessage ? "danger" : "accent"}>
-          {errorMessage ? "Fehlgeschlagen" : source === "manual" ? "Manuell" : "Scan"}
+          {errorMessage
+            ? "Fehlgeschlagen"
+            : entry
+              ? "Bearbeiten"
+              : source === "manual"
+                ? "Manuell"
+                : "Scan"}
         </Badge>
       </div>
 
@@ -152,11 +164,20 @@ export function ReviewCard({
       ) : null}
 
       {imageUrl ? (
-        <img
-          src={imageUrl}
-          alt="Foto des Tankbelegs"
-          className="mb-3 max-h-48 rounded-md border border-border object-contain"
-        />
+        <button
+          type="button"
+          onClick={() => setImageExpanded((current) => !current)}
+          aria-label={imageExpanded ? "Belegfoto verkleinern" : "Belegfoto vergrößern"}
+          className="mb-3 block cursor-zoom-in rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          <img
+            src={imageUrl}
+            alt="Foto des Tankbelegs"
+            className={`rounded-md border border-border object-contain ${
+              imageExpanded ? "max-h-none" : "max-h-48"
+            }`}
+          />
+        </button>
       ) : null}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -258,7 +279,7 @@ export function ReviewCard({
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button onClick={() => void handleSave()} disabled={!saveable || saving}>
-          Übernehmen
+          {entry ? "Speichern" : "Übernehmen"}
         </Button>
         {onRetry ? (
           <Button variant="secondary" onClick={onRetry}>
@@ -268,8 +289,8 @@ export function ReviewCard({
         ) : null}
         {onDiscard ? (
           <Button variant="ghost" onClick={onDiscard}>
-            <Trash2 size={16} aria-hidden="true" />
-            Verwerfen
+            {entry ? null : <Trash2 size={16} aria-hidden="true" />}
+            {entry ? "Abbrechen" : "Verwerfen"}
           </Button>
         ) : null}
       </div>

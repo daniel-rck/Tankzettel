@@ -68,6 +68,15 @@ export function formatMonthLabel(yearMonth: string): string {
 }
 
 /**
+ * Lossless decimal for input prefill: 46.92 → "46,92", null → "". No
+ * Intl here — that would round and add thousands separators; this stays
+ * exactly what `parseDecimal` reads back.
+ */
+export function formatDecimalInput(value: number | null | undefined): string {
+  return value === null || value === undefined ? "" : value.toString().replace(".", ",");
+}
+
+/**
  * Parse a German or technical decimal string: "46.92", "46,92", "1.234,56".
  * Returns null for garbage or empty input.
  */

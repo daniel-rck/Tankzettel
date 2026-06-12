@@ -40,6 +40,7 @@ function QueueRow({ job }: { job: ScanJob }) {
 export function ErfassenPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [manualOpen, setManualOpen] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const hasApiKey = getApiKey() !== "";
 
   const { data: jobs } = useLiveQuery("scanQueue", async () => {
@@ -62,7 +63,15 @@ export function ErfassenPage() {
 
   function onDrop(event: DragEvent): void {
     event.preventDefault();
+    setDragActive(false);
     void handleFiles(event.dataTransfer.files);
+  }
+
+  function onDragLeave(event: DragEvent): void {
+    // Ignore leave events fired when moving over child elements.
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setDragActive(false);
+    }
   }
 
   const queueRows = (jobs ?? []).filter(
@@ -99,8 +108,14 @@ export function ErfassenPage() {
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wraps a real button */}
       <div
         onDrop={onDrop}
-        onDragOver={(event) => event.preventDefault()}
-        className="mb-6 rounded-lg border-2 border-dashed border-border bg-surface-muted p-8 text-center"
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragActive(true);
+        }}
+        onDragLeave={onDragLeave}
+        className={`mb-6 rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+          dragActive ? "border-accent-500 bg-accent-100/40" : "border-border bg-surface-muted"
+        }`}
       >
         <Camera size={32} aria-hidden="true" className="mx-auto mb-3 text-fg-subtle" />
         <p className="mb-4 text-sm text-fg-muted">

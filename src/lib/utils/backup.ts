@@ -1,4 +1,5 @@
 import { getDB, notifyMutation } from "../db/db.ts";
+import { requestPersistentStorage } from "../db/entries.ts";
 import type { FuelEntry } from "../db/types.ts";
 
 export const BACKUP_FILENAME = "tankzettel-backup.json";
@@ -81,6 +82,8 @@ export async function importBackup(text: string): Promise<ImportReport> {
     }
     await tx.done;
     notifyMutation("entries");
+    // An import can be the first time data lands on this device.
+    if (existing.length === 0) requestPersistentStorage();
   }
   return report;
 }

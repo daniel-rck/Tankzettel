@@ -7,6 +7,12 @@ describe("hasPlausibilityIssue", () => {
     expect(hasPlausibilityIssue(32.18, 1.699, 54.67)).toBe(false);
   });
 
+  it("is not tripped by float artifacts exactly at the threshold", () => {
+    // 41.3 × 1.8 = 74.34000000000002 in IEEE 754; 74.29 is exactly 5 ct off.
+    expect(hasPlausibilityIssue(41.3, 1.8, 74.29)).toBe(false);
+    expect(hasPlausibilityIssue(41.3, 1.8, 74.28)).toBe(true);
+  });
+
   it("flags a mismatch beyond 5 ct", () => {
     expect(hasPlausibilityIssue(32.18, 1.699, 56.0)).toBe(true);
   });
@@ -35,6 +41,10 @@ describe("isLikelyDuplicate", () => {
     expect(isLikelyDuplicate({ date: null, total: 54.67 }, existing)).toBe(false);
     expect(isLikelyDuplicate({ date: "2026-03-05", total: null }, existing)).toBe(false);
     expect(isLikelyDuplicate({ date: "2026-03-05", total: 54.67 }, existing, "a")).toBe(false);
+  });
+
+  it("still flags duplicates when a different entry is excluded", () => {
+    expect(isLikelyDuplicate({ date: "2026-03-05", total: 54.67 }, existing, "b")).toBe(true);
   });
 });
 
