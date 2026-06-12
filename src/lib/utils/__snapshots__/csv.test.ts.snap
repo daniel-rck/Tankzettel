@@ -1,0 +1,8 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`entriesToCsv > matches the snapshot 1`] = `
+"﻿Datum;Zeit;Tankstelle;Ort;Kraftstoff;Liter;Preis_EUR_pro_Liter;Betrag_EUR;km_Stand
+05.03.2026;08:15;V-Markt;Türkheim;Super E10;32,18;1,699;54,67;123456
+;;"Tank & Rast; Allgäu";;;;;20,00;
+"
+`;
