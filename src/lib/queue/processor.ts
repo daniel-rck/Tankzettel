@@ -93,9 +93,10 @@ async function processJob(job: ScanJob): Promise<void> {
   await db.put("scanQueue", { ...job, status: "processing" });
   notifyMutation("scanQueue");
 
+  let update: Partial<ScanJob>;
   try {
     const result = await extractReceipt(job.image, { apiKey: getApiKey(), model: getModel() });
-    await db.put("scanQueue", { ...job, status: "review", result, lastError: null });
+    update = { status: "review", result, lastError: null };
   } catch (error) {
     const kind = error instanceof ExtractionError ? error.kind : "unparsable";
     const message =
@@ -104,19 +105,26 @@ async function processJob(job: ScanJob): Promise<void> {
     if (kind === "network") {
       // Don't burn attempts while offline; the `online` event re-drains.
       eligibleAt.set(job.id, Date.now() + NETWORK_RETRY_MS);
-      await db.put("scanQueue", { ...job, status: "pending", lastError: message });
+      update = { status: "pending", lastError: message };
     } else if (isRetryable(kind) && job.attempts + 1 < MAX_ATTEMPTS) {
       const attempts = job.attempts + 1;
       eligibleAt.set(job.id, Date.now() + backoffMs(attempts));
-      await db.put("scanQueue", { ...job, status: "pending", attempts, lastError: message });
+      update = { status: "pending", attempts, lastError: message };
     } else {
-      await db.put("scanQueue", {
-        ...job,
-        status: "failed",
-        attempts: job.attempts + 1,
-        lastError: message,
-      });
+      // Retryable + exhausted counts the final attempt; non-retryable
+      // failures (auth/unparsable) keep the counter untouched.
+      const attempts = isRetryable(kind) ? job.attempts + 1 : job.attempts;
+      update = { status: "failed", attempts, lastError: message };
     }
+  }
+
+  // The user may have discarded the job while extraction ran — never
+  // resurrect it (or overwrite a concurrent reset) with a stale put.
+  const current = await db.get("scanQueue", job.id);
+  if (current && current.status === "processing") {
+    await db.put("scanQueue", { ...current, ...update });
+  } else {
+    eligibleAt.delete(job.id);
   }
   notifyMutation("scanQueue");
   scheduleRetryTimer();
@@ -147,6 +155,20 @@ export function drainQueue(): Promise<void> {
   return currentDrain;
 }
 
+/**
+ * Jobs stuck in "processing" (app was closed mid-extraction) would never be
+ * picked up again — make them pending before the first drain of a session.
+ */
+export async function resetStaleProcessingJobs(): Promise<void> {
+  const db = await getDB();
+  const stale = (await db.getAll("scanQueue")).filter((job) => job.status === "processing");
+  if (stale.length === 0) return;
+  for (const job of stale) {
+    await db.put("scanQueue", { ...job, status: "pending" });
+  }
+  notifyMutation("scanQueue");
+}
+
 /** Start the module-level processor: initial drain + `online` listener. */
 export function startQueueProcessor(): void {
   if (started) return;
@@ -154,7 +176,7 @@ export function startQueueProcessor(): void {
   if (typeof window !== "undefined") {
     window.addEventListener("online", () => void drainQueue());
   }
-  void drainQueue();
+  void resetStaleProcessingJobs().then(() => drainQueue());
 }
 
 /** Test helper: clear in-memory backoff/timer state. */

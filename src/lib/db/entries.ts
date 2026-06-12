@@ -16,15 +16,17 @@ export function sortNewestFirst(entries: FuelEntry[]): FuelEntry[] {
   });
 }
 
+/** Best-effort: ask the browser not to evict our IndexedDB data. */
+export function requestPersistentStorage(): void {
+  navigator.storage?.persist?.().catch(() => {});
+}
+
 export async function addEntry(entry: FuelEntry): Promise<void> {
   const db = await getDB();
   const isFirst = (await db.count("entries")) === 0;
   await db.put("entries", entry);
   notifyMutation("entries");
-  if (isFirst) {
-    // Best-effort: ask the browser not to evict our IndexedDB data.
-    navigator.storage?.persist?.().catch(() => {});
-  }
+  if (isFirst) requestPersistentStorage();
 }
 
 export async function updateEntry(entry: FuelEntry): Promise<void> {

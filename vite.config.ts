@@ -22,7 +22,7 @@ export default defineConfig({
         short_name: "Tankzettel",
         lang: "de",
         description: "Tankbelege erfassen und auswerten — lokal, ohne Konto",
-        theme_color: "#000000",
+        theme_color: "#ffffff",
         background_color: "#ffffff",
         display: "standalone",
         start_url: "/",

@@ -10,7 +10,9 @@ export function hasPlausibilityIssue(
   total: number | null,
 ): boolean {
   if (liters === null || pricePerLiter === null || total === null) return false;
-  return Math.abs(liters * pricePerLiter - total) > 0.05;
+  // Compare in whole cents so float artifacts can't push an exact match
+  // (e.g. 32.18 × 1.699) over the threshold.
+  return Math.abs(Math.round(liters * pricePerLiter * 100) - Math.round(total * 100)) > 5;
 }
 
 /** Non-blocking check: same date and total within 1 ct of an existing entry. */

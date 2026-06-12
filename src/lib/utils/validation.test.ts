@@ -7,6 +7,12 @@ describe("hasPlausibilityIssue", () => {
     expect(hasPlausibilityIssue(32.18, 1.699, 54.67)).toBe(false);
   });
 
+  it("is not tripped by float artifacts exactly at the threshold", () => {
+    // 41.3 × 1.8 = 74.34000000000002 in IEEE 754; 74.29 is exactly 5 ct off.
+    expect(hasPlausibilityIssue(41.3, 1.8, 74.29)).toBe(false);
+    expect(hasPlausibilityIssue(41.3, 1.8, 74.28)).toBe(true);
+  });
+
   it("flags a mismatch beyond 5 ct", () => {
     expect(hasPlausibilityIssue(32.18, 1.699, 56.0)).toBe(true);
   });
