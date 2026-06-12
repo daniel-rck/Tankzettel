@@ -8,7 +8,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { type ChangeEvent, useRef, useState } from "react";
-import { deleteAllEntries, getDB } from "../../lib/db/index.ts";
+import { deleteAllEntries } from "../../lib/db/entries.ts";
+import { getDB } from "../../lib/db/index.ts";
 import { DEFAULT_MODEL, testApiKey } from "../../lib/gemini/index.ts";
 import { drainQueue } from "../../lib/queue/processor.ts";
 import { getApiKey, getModel, setApiKey, setModel } from "../../lib/settings.ts";

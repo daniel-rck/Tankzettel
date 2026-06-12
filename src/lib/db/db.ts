@@ -13,6 +13,10 @@ export interface TankzettelSchema extends DBSchema {
   };
 }
 
+// Alias for the web-base storage template's owned barrel (src/lib/db/index.ts),
+// which re-exports the schema under this name.
+export type AppSchema = TankzettelSchema;
+
 const DB_NAME = "tankzettel";
 const DB_VERSION = 1;
 

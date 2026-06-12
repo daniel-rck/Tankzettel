@@ -1,11 +1,7 @@
 import { Download, ReceiptText, Trash2 } from "lucide-react";
-import {
-  deleteEntry,
-  type FuelEntry,
-  getDB,
-  sortNewestFirst,
-  useLiveQuery,
-} from "../../lib/db/index.ts";
+import { deleteEntry, sortNewestFirst } from "../../lib/db/entries.ts";
+import { getDB, useLiveQuery } from "../../lib/db/index.ts";
+import type { FuelEntry } from "../../lib/db/types.ts";
 import { Badge, Button, Card, EmptyState, PageHeader } from "../../lib/ui/index.ts";
 import { CSV_FILENAME, entriesToCsv } from "../../lib/utils/csv.ts";
 import {

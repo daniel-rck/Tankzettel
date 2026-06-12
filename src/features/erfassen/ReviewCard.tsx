@@ -1,12 +1,7 @@
 import { AlertTriangle, RotateCcw, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
-import {
-  type EntrySource,
-  type ExtractionResult,
-  type FuelEntry,
-  getDB,
-  useLiveQuery,
-} from "../../lib/db/index.ts";
+import { getDB, useLiveQuery } from "../../lib/db/index.ts";
+import type { EntrySource, ExtractionResult, FuelEntry } from "../../lib/db/types.ts";
 import { Badge, Button, Card } from "../../lib/ui/index.ts";
 import { parseDecimal } from "../../lib/utils/format.ts";
 import {

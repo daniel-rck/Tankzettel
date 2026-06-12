@@ -1,7 +1,9 @@
 import { Camera, ImagePlus, KeyRound, PencilLine, Trash2 } from "lucide-react";
 import { type ChangeEvent, type DragEvent, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { addEntry, getDB, type ScanJob, useLiveQuery } from "../../lib/db/index.ts";
+import { addEntry } from "../../lib/db/entries.ts";
+import { getDB, useLiveQuery } from "../../lib/db/index.ts";
+import type { ScanJob } from "../../lib/db/types.ts";
 import { deleteJob, enqueueScan, retryJob } from "../../lib/queue/processor.ts";
 import { ROUTES } from "../../lib/routes.ts";
 import { getApiKey } from "../../lib/settings.ts";
