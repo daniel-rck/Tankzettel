@@ -6,6 +6,9 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = "./dist"
 binding = "ASSETS"
+# SPA client-side routes (/belege, /auswertung, …) fall back to index.html
+# instead of returning 404 on direct load or refresh.
+not_found_handling = "single-page-application"
 
 # Uncomment when adding R2/KV (see sync template):
 # [[r2_buckets]]
