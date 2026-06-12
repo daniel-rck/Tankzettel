@@ -10,14 +10,7 @@
     <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
-    <script>
-      (() => {
-        try {
-          const t = localStorage.getItem("theme");
-          if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-        } catch {}
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>
