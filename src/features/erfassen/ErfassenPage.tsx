@@ -39,6 +39,7 @@ function QueueRow({ job }: { job: ScanJob }) {
 
 export function ErfassenPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const hasApiKey = getApiKey() !== "";
@@ -95,6 +96,17 @@ export function ErfassenPage() {
       />
 
       <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={onInputChange}
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+
+      <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
@@ -119,12 +131,18 @@ export function ErfassenPage() {
       >
         <Camera size={32} aria-hidden="true" className="mx-auto mb-3 text-fg-subtle" />
         <p className="mb-4 text-sm text-fg-muted">
-          Tankbeleg fotografieren oder Foto hierher ziehen
+          Tankbeleg fotografieren, auswählen oder hierher ziehen
         </p>
-        <Button onClick={() => fileInputRef.current?.click()}>
-          <ImagePlus size={16} aria-hidden="true" />
-          Foto auswählen
-        </Button>
+        <div className="flex flex-wrap justify-center gap-3">
+          <Button onClick={() => cameraInputRef.current?.click()}>
+            <Camera size={16} aria-hidden="true" />
+            Foto aufnehmen
+          </Button>
+          <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
+            <ImagePlus size={16} aria-hidden="true" />
+            Foto auswählen
+          </Button>
+        </div>
         {!hasApiKey ? (
           <p className="mt-4 flex items-center justify-center gap-2 text-sm text-fg-muted">
             <KeyRound size={16} aria-hidden="true" />
