@@ -23,8 +23,13 @@ export const themeInitScript =
 
 function readStoredTheme(): Theme {
   if (typeof window === "undefined") return "system";
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "light" || stored === "dark" || stored === "system") return stored;
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === "light" || stored === "dark" || stored === "system") return stored;
+  } catch {
+    // localStorage can throw outright, not just return null: Safari private
+    // mode and "block all cookies" both do. Fall back to following the OS.
+  }
   return "system";
 }
 
@@ -49,7 +54,11 @@ export function useTheme(): UseThemeResult {
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
     if (typeof window === "undefined") return;
-    localStorage.setItem(STORAGE_KEY, next);
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Persistence is best-effort; the choice still applies for this session.
+    }
     applyTheme(next);
   }, []);
 
