@@ -62,6 +62,6 @@
     "wrangler": "^4.128.0"
   },
   "webBase": {
-    "version": "0.3.0"
+    "version": "0.3.1"
   }
 }
