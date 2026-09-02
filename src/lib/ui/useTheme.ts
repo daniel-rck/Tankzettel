@@ -11,9 +11,11 @@ export type UseThemeResult = {
 const STORAGE_KEY = "theme";
 
 /**
- * Inline this in `index.html` <head> before the stylesheet to set `data-theme`
- * from localStorage before first paint, avoiding a flash of the wrong theme.
- * Keep in sync with the `postInstall` note in this template's manifest.json.
+ * The anti-flash snippet, as a string. Prefer the shipped `public/theme-init.js`
+ * and a `<script src="/theme-init.js">` tag: an external file lets a Worker CSP
+ * stay `script-src 'self'` instead of pinning a `sha256-` hash that breaks
+ * silently whenever the snippet changes. This export exists for apps that must
+ * inline it anyway. Keep the two in sync.
  */
 export const themeInitScript =
   `(function(){try{var t=localStorage.getItem("${STORAGE_KEY}");` +

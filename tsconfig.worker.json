@@ -10,6 +10,7 @@
     "noEmit": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "types": ["@cloudflare/workers-types"]
   },
   "include": ["worker/**/*.ts"]
