@@ -1,12 +1,26 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # lint (Biome) → typecheck (App + SW + Worker) → test (Vitest) → build (SPA + PWA).
+  # The Worker deploy is handled by Cloudflare Workers Builds (Git integration).
   ci:
     uses: daniel-rck/web-base/.github/workflows/web-app-ci.yml@main
 
+  # Fails the build when an owned web-base building block has drifted from the
+  # base. Scaffold seams (theme.css accent, db schema, routes, worker handlers)
+  # are ignored. Pinned to @main rather than a version tag until v0.3.0 is
+  # tagged on web-base's main; swap `@main` for `@v0.3.0` then.
   web-base-check:
     uses: daniel-rck/web-base/.github/workflows/web-base-check.yml@main
-    with:
-      ref: v0.2.1
