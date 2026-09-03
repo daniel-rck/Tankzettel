@@ -54,7 +54,10 @@ export function useLiveQuery<T>(
       };
     }
 
-    const channels = [new BroadcastChannel(`db:${storeName}`), new BroadcastChannel("db:*")];
+    // Deduped: a caller that passes "*" as the store name would otherwise open
+    // two channels on the same name and run every query twice per mutation.
+    const names = Array.from(new Set([`db:${storeName}`, "db:*"]));
+    const channels = names.map((name) => new BroadcastChannel(name));
     for (const channel of channels) {
       channel.onmessage = () => {
         run();
