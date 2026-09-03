@@ -29,7 +29,7 @@ bun run build       # SPA + PWA
 
 - **Bun** als Runtime & Package-Manager (kein npm/yarn-Lockfile).
 - **Biome** für Lint + Format — eine Config, kein ESLint/Prettier.
-- **TypeScript strict** inkl. `noUncheckedIndexedAccess`;
+- **TypeScript 7 strict** inkl. `noUncheckedIndexedAccess`;
   `verbatimModuleSyntax` (→ `import type`); `type` statt `interface`.
 - **Deutsche UI + README, englischer Quellcode** (Bezeichner, Kommentare,
   Commits, `docs/specs/`).
@@ -53,8 +53,8 @@ bun run build       # SPA + PWA
 - **Offline-first ernst nehmen**: ohne Key und ohne Netz bleibt alles außer
   der Extraktion voll nutzbar.
 - **Design**: Layout-System unverändert übernehmen, `theme.css` nur
-  `--accent-h: 55`. Erlaubte Abweichung „receipt treatment" (Mono-Ziffern,
-  dashed/dotted Trenner) nur additiv — Spec §9.
+  `--accent-h: 110` (Frischgrün — Verbrauch/Effizienz). Erlaubte Abweichung
+  „receipt treatment" (Mono-Ziffern, dashed/dotted Trenner) nur additiv — Spec §9.
 - **Charts mit chart.js** (per `bun add`), nicht recharts; Farben aus den
   Theme-Variablen, damit Dark Mode funktioniert.
 - Keine Requests außer an `generativelanguage.googleapis.com`, und auch

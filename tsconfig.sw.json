@@ -10,6 +10,7 @@
     "noEmit": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "types": ["vite-plugin-pwa/client"]
   },
   "include": ["src/sw/**/*.ts"]
