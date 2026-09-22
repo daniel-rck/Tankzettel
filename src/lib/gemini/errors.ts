@@ -45,3 +45,11 @@ export function errorKindFromStatus(status: number): ExtractionErrorKind {
 export function isConfigError(kind: ExtractionErrorKind): boolean {
   return kind === "auth" || kind === "model";
 }
+
+/**
+ * Jobs persist only the German message, not the kind — recognise the config
+ * errors by their text so the UI can link to the settings.
+ */
+export function isConfigErrorMessage(message: string | null): boolean {
+  return message === USER_MESSAGES.auth || message === USER_MESSAGES.model;
+}

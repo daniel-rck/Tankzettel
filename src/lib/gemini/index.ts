@@ -4,6 +4,7 @@ export {
   type ExtractionErrorKind,
   errorKindFromStatus,
   isConfigError,
+  isConfigErrorMessage,
   isRetryable,
 } from "./errors.ts";
 export {

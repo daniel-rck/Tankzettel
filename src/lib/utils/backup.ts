@@ -2,9 +2,10 @@ import { getDB, notifyMutation } from "../db/db.ts";
 import { requestPersistentStorage } from "../db/entries.ts";
 import type { FuelEntry } from "../db/types.ts";
 
+const pad = (n: number) => String(n).padStart(2, "0");
+
 /** Dated, so repeated backups don't overwrite each other or become "(1)". */
 export function backupFilename(now: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
   return `tankzettel-backup-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.json`;
 }
 
