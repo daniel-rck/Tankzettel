@@ -7,57 +7,115 @@ import {
   Upload,
   XCircle,
 } from "lucide-react";
-import { type ChangeEvent, useRef, useState } from "react";
+import { type ChangeEvent, type KeyboardEvent, useRef, useState } from "react";
 import { deleteAllEntries } from "../../lib/db/entries.ts";
 import { getDB } from "../../lib/db/index.ts";
-import { DEFAULT_MODEL, testApiKey } from "../../lib/gemini/index.ts";
+import { DEFAULT_MODEL, type KeyTestResult, testApiKey } from "../../lib/gemini/index.ts";
 import { drainQueue } from "../../lib/queue/processor.ts";
 import { getApiKey, getModel, setApiKey, setModel } from "../../lib/settings.ts";
 import { Button, Card, PageHeader, Spinner } from "../../lib/ui/index.ts";
-import { BACKUP_FILENAME, createBackup, importBackup } from "../../lib/utils/backup.ts";
+import {
+  backupFilename,
+  createBackup,
+  type ImportReport,
+  importBackup,
+} from "../../lib/utils/backup.ts";
+import { downloadFile } from "../../lib/utils/download.ts";
 
 const INPUT_CLASS =
   "h-10 w-full rounded-md border border-border bg-surface px-3 text-sm text-fg " +
   "focus:outline-none focus:ring-2 focus:ring-accent-500";
 
-type KeyTestState = "idle" | "testing" | "ok" | "fail";
+type KeyTestState = "idle" | "testing" | KeyTestResult;
+
+const KEY_TEST_FAILURE: Record<Exclude<KeyTestResult, "ok">, string> = {
+  invalid: "Key ungültig",
+  model: "Modell nicht gefunden — Modell-ID prüfen",
+  unavailable: "Gemini gerade nicht verfügbar (Rate-Limit/Server) — später erneut testen",
+  network: "Keine Verbindung — später erneut testen",
+};
+
+type Notice = { tone: "ok" | "error"; text: string };
+
+function NoticeText({ notice }: { notice: Notice | null }) {
+  // The live region stays mounted so screen readers announce each update.
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      className={`text-sm empty:hidden ${notice?.tone === "error" ? "text-danger" : "text-fg-muted"}`}
+    >
+      {notice?.text}
+    </p>
+  );
+}
+
+async function exportBackup(): Promise<void> {
+  const db = await getDB();
+  const entries = await db.getAll("entries");
+  downloadFile(createBackup(entries), backupFilename(), "application/json");
+}
+
+function describeImport(report: ImportReport): string {
+  const parts = [
+    `${report.added} neu`,
+    `${report.updated} aktualisiert`,
+    `${report.skipped} unverändert`,
+  ];
+  if (report.invalid > 0) parts.push(`${report.invalid} ungültig übersprungen`);
+  return `Import abgeschlossen: ${parts.join(", ")}.`;
+}
+
+function commitOnEnter(commit: () => void) {
+  return (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") commit();
+  };
+}
 
 export function EinstellungenPage() {
   const [apiKey, setApiKeyState] = useState(getApiKey);
   const [model, setModelState] = useState(getModel);
   const [keyTest, setKeyTest] = useState<KeyTestState>("idle");
-  const [importReport, setImportReport] = useState<string | null>(null);
+  const [backupNotice, setBackupNotice] = useState<Notice | null>(null);
+  const [dangerNotice, setDangerNotice] = useState<Notice | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  function saveApiKey(value: string): void {
-    setApiKeyState(value);
-    setApiKey(value);
+  // Persist on blur/Enter, not per keystroke: every save may drain the queue,
+  // and a half-typed key would fail pending scans as "API-Key ungültig".
+  function commitApiKey(): void {
+    const trimmed = apiKey.trim();
+    setApiKeyState(trimmed);
+    if (trimmed === getApiKey()) return;
+    setApiKey(trimmed);
     setKeyTest("idle");
     // A fresh key may unblock waiting scan jobs.
-    if (value.trim() !== "") void drainQueue();
+    if (trimmed !== "") void drainQueue();
   }
 
-  function saveModel(value: string): void {
-    setModelState(value);
-    setModel(value);
+  function commitModel(): void {
+    const trimmed = model.trim();
+    setModelState(trimmed);
+    // An empty field falls back to the default model — not a change if that's current.
+    if ((trimmed || DEFAULT_MODEL) === getModel()) return;
+    setModel(trimmed);
+    setKeyTest("idle");
+    if (getApiKey() !== "") void drainQueue();
   }
 
   async function handleKeyTest(): Promise<void> {
+    commitApiKey();
+    commitModel();
     setKeyTest("testing");
-    const ok = await testApiKey({ apiKey: getApiKey(), model: getModel() });
-    setKeyTest(ok ? "ok" : "fail");
+    setKeyTest(await testApiKey({ apiKey: getApiKey(), model: getModel() }));
   }
 
   async function handleExport(): Promise<void> {
-    const db = await getDB();
-    const entries = await db.getAll("entries");
-    const blob = new Blob([createBackup(entries)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = BACKUP_FILENAME;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    try {
+      await exportBackup();
+      setBackupNotice({ tone: "ok", text: "Backup-Datei wurde erstellt." });
+    } catch {
+      setBackupNotice({ tone: "error", text: "Backup konnte nicht erstellt werden." });
+    }
   }
 
   async function handleImport(event: ChangeEvent<HTMLInputElement>): Promise<void> {
@@ -66,17 +124,26 @@ export function EinstellungenPage() {
     if (!file) return;
     try {
       const report = await importBackup(await file.text());
-      setImportReport(
-        `Import abgeschlossen: ${report.added} neu, ${report.updated} aktualisiert, ${report.skipped} unverändert.`,
-      );
+      setBackupNotice({ tone: "ok", text: describeImport(report) });
     } catch (error) {
-      setImportReport(error instanceof Error ? error.message : "Import fehlgeschlagen.");
+      setBackupNotice({
+        tone: "error",
+        text: error instanceof Error ? error.message : "Import fehlgeschlagen.",
+      });
     }
   }
 
-  function handleDeleteAll(): void {
-    if (window.confirm("Wirklich ALLE Belege löschen? Das kann nicht rückgängig gemacht werden.")) {
-      void deleteAllEntries();
+  async function handleDeleteAll(): Promise<void> {
+    if (
+      !window.confirm("Wirklich ALLE Belege löschen? Das kann nicht rückgängig gemacht werden.")
+    ) {
+      return;
+    }
+    try {
+      await deleteAllEntries();
+      setDangerNotice({ tone: "ok", text: "Alle Belege wurden gelöscht." });
+    } catch {
+      setDangerNotice({ tone: "error", text: "Löschen fehlgeschlagen." });
     }
   }
 
@@ -108,8 +175,11 @@ export function EinstellungenPage() {
               type="password"
               autoComplete="off"
               className={INPUT_CLASS}
+              spellCheck={false}
               value={apiKey}
-              onChange={(e) => saveApiKey(e.target.value)}
+              onChange={(e) => setApiKeyState(e.target.value)}
+              onBlur={commitApiKey}
+              onKeyDown={commitOnEnter(commitApiKey)}
             />
           </label>
           <label className="mt-3 flex flex-col gap-1 text-sm">
@@ -118,14 +188,18 @@ export function EinstellungenPage() {
               type="text"
               className={`${INPUT_CLASS} font-mono`}
               placeholder={DEFAULT_MODEL}
+              spellCheck={false}
               value={model}
-              onChange={(e) => saveModel(e.target.value)}
+              onChange={(e) => setModelState(e.target.value)}
+              onBlur={commitModel}
+              onKeyDown={commitOnEnter(commitModel)}
             />
           </label>
-          <div className="mt-3 flex items-center gap-3">
+          <div className="mt-3 flex flex-wrap items-center gap-3" aria-live="polite">
             <Button
               variant="secondary"
               disabled={apiKey.trim() === "" || keyTest === "testing"}
+              className="disabled:opacity-50"
               onClick={() => void handleKeyTest()}
             >
               Key testen
@@ -136,9 +210,9 @@ export function EinstellungenPage() {
                 <CheckCircle2 size={16} aria-hidden="true" /> Key funktioniert
               </span>
             ) : null}
-            {keyTest === "fail" ? (
+            {keyTest !== "idle" && keyTest !== "testing" && keyTest !== "ok" ? (
               <span className="flex items-center gap-1 text-sm text-danger">
-                <XCircle size={16} aria-hidden="true" /> Key oder Modell ungültig
+                <XCircle size={16} aria-hidden="true" /> {KEY_TEST_FAILURE[keyTest]}
               </span>
             ) : null}
           </div>
@@ -169,7 +243,9 @@ export function EinstellungenPage() {
               tabIndex={-1}
             />
           </div>
-          {importReport ? <p className="mt-3 text-sm text-fg-muted">{importReport}</p> : null}
+          <div className="mt-3">
+            <NoticeText notice={backupNotice} />
+          </div>
         </Card>
 
         <Card>
@@ -190,10 +266,13 @@ export function EinstellungenPage() {
           <p className="mb-3 text-sm text-fg-muted">
             Löscht alle gespeicherten Belege unwiderruflich. Einstellungen bleiben erhalten.
           </p>
-          <Button variant="danger" onClick={handleDeleteAll}>
+          <Button variant="danger" onClick={() => void handleDeleteAll()}>
             <Trash2 size={16} aria-hidden="true" />
             Alle Belege löschen
           </Button>
+          <div className="mt-3">
+            <NoticeText notice={dangerNotice} />
+          </div>
         </Card>
       </div>
     </>

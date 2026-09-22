@@ -1,6 +1,7 @@
 // Pure, unit-tested derivations over FuelEntry[] for the Auswertung page.
 import type { FuelEntry } from "./db/types.ts";
 import { formatMonthLabel } from "./utils/format.ts";
+import { compareChronologically } from "./utils/sort.ts";
 
 export type PriceExtreme = {
   pricePerLiter: number;
@@ -64,8 +65,8 @@ export function pricePoints(entries: FuelEntry[]): PricePoint[] {
       (entry): entry is FuelEntry & { date: string; pricePerLiter: number } =>
         entry.date !== null && entry.pricePerLiter !== null,
     )
-    .map((entry) => ({ date: entry.date, pricePerLiter: entry.pricePerLiter }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .toSorted(compareChronologically)
+    .map((entry) => ({ date: entry.date, pricePerLiter: entry.pricePerLiter }));
 }
 
 export type MonthlyCost = {
@@ -83,7 +84,7 @@ export function monthlyCosts(entries: FuelEntry[]): MonthlyCost[] {
     byMonth.set(month, (byMonth.get(month) ?? 0) + entry.total);
   }
   return Array.from(byMonth.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
+    .toSorted(([a], [b]) => a.localeCompare(b))
     .map(([month, total]) => ({ month, label: formatMonthLabel(month), total }));
 }
 
@@ -103,7 +104,7 @@ export function computeConsumption(entries: FuelEntry[]): Consumption | null {
       (entry): entry is FuelEntry & { odometer: number; liters: number } =>
         entry.odometer !== null && entry.liters !== null,
     )
-    .sort((a, b) => a.odometer - b.odometer);
+    .toSorted((a, b) => a.odometer - b.odometer);
 
   if (usable.length < 2) return null;
   const first = usable[0];

@@ -1,35 +1,98 @@
-import { Camera, ImagePlus, KeyRound, PencilLine, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Camera,
+  Clock,
+  ImagePlus,
+  KeyRound,
+  PencilLine,
+  Trash2,
+} from "lucide-react";
 import { type ChangeEvent, type DragEvent, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { addEntry } from "../../lib/db/entries.ts";
 import { getDB, useLiveQuery } from "../../lib/db/index.ts";
 import type { ScanJob } from "../../lib/db/types.ts";
+import { isConfigErrorMessage } from "../../lib/gemini/index.ts";
+import { QueryFallback } from "../../lib/QueryFallback.tsx";
 import { deleteJob, enqueueScan, retryJob } from "../../lib/queue/processor.ts";
 import { ROUTES } from "../../lib/routes.ts";
 import { getApiKey } from "../../lib/settings.ts";
 import { Badge, Button, Card, EmptyState, PageHeader, Spinner } from "../../lib/ui/index.ts";
 import { ReviewCard } from "./ReviewCard.tsx";
 
-function QueueRow({ job }: { job: ScanJob }) {
+const SETTINGS_LINK_CLASS = "text-accent-600 underline underline-offset-2";
+
+// IndexedDB hands out a fresh Blob per read, so every queue mutation would
+// give each review card a "new" photo (new object URL, image reload). A job's
+// image never changes — reuse the first Blob seen per job id.
+const imageCache = new Map<string, Blob>();
+
+async function loadJobs(): Promise<ScanJob[]> {
+  const db = await getDB();
+  const all = await db.getAll("scanQueue");
+  const ids = new Set(all.map((job) => job.id));
+  for (const id of imageCache.keys()) {
+    if (!ids.has(id)) imageCache.delete(id);
+  }
+  return all
+    .map((job) => {
+      const cached = imageCache.get(job.id);
+      if (cached) return { ...job, image: cached };
+      imageCache.set(job.id, job.image);
+      return job;
+    })
+    .toSorted((a, b) => a.createdAt - b.createdAt);
+}
+
+function scanTime(job: ScanJob): string {
+  return new Date(job.createdAt).toLocaleTimeString("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function confirmDiscard(job: ScanJob): void {
+  if (window.confirm("Scan verwerfen? Das Belegfoto wird dabei gelöscht.")) {
+    void deleteJob(job.id);
+  }
+}
+
+function QueueRow({ job, hasApiKey }: { job: ScanJob; hasApiKey: boolean }) {
+  const processing = job.status === "processing";
   return (
     <Card className="flex items-center gap-3 py-3">
-      {job.status === "processing" ? (
+      {processing ? (
         <Spinner size="sm" label="Beleg wird gelesen …" />
       ) : (
-        <Spinner size="sm" className="opacity-40" label="Wartet" />
+        <Clock size={16} aria-hidden="true" className="shrink-0 text-fg-subtle" />
       )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm">
-          {job.status === "processing" ? "Beleg wird gelesen …" : "Wartet auf Extraktion"}
+          {processing ? (
+            "Beleg wird gelesen …"
+          ) : hasApiKey ? (
+            "Wartet auf Extraktion"
+          ) : (
+            <>
+              Wartet auf API-Key —{" "}
+              <Link to={ROUTES.einstellungen} className={SETTINGS_LINK_CLASS}>
+                einrichten
+              </Link>
+            </>
+          )}
         </p>
         {job.lastError ? <p className="truncate text-xs text-fg-muted">{job.lastError}</p> : null}
       </div>
-      {job.attempts > 0 ? <Badge variant="warning">{job.attempts}. Versuch</Badge> : null}
+      {job.attempts > 0 ? (
+        <Badge variant="warning">
+          {job.attempts} {job.attempts === 1 ? "Fehlversuch" : "Fehlversuche"}
+        </Badge>
+      ) : null}
       <Button
         variant="ghost"
         size="sm"
-        aria-label="Scan verwerfen"
-        onClick={() => void deleteJob(job.id)}
+        aria-label={`Scan von ${scanTime(job)} Uhr verwerfen`}
+        onClick={() => confirmDiscard(job)}
       >
         <Trash2 size={16} aria-hidden="true" />
       </Button>
@@ -42,18 +105,34 @@ export function ErfassenPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [preparing, setPreparing] = useState(0);
+  const [intakeError, setIntakeError] = useState<string | null>(null);
   const hasApiKey = getApiKey() !== "";
 
-  const { data: jobs } = useLiveQuery("scanQueue", async () => {
-    const db = await getDB();
-    const all = await db.getAll("scanQueue");
-    return all.sort((a, b) => a.createdAt - b.createdAt);
-  });
+  const { data: jobs, loading, error } = useLiveQuery("scanQueue", loadJobs);
 
   async function handleFiles(files: FileList | null): Promise<void> {
-    if (!files) return;
-    for (const file of Array.from(files)) {
-      if (file.type.startsWith("image/")) await enqueueScan(file);
+    if (!files || files.length === 0) return;
+    const list = Array.from(files);
+    const images = list.filter((file) => file.type.startsWith("image/"));
+    const skipped = list.filter((file) => !file.type.startsWith("image/")).map((f) => f.name);
+    setIntakeError(null);
+    setPreparing((count) => count + images.length);
+    for (const file of images) {
+      try {
+        await enqueueScan(file);
+      } catch (cause) {
+        // Undecodable formats (e.g. HEIC outside Safari) or corrupt files.
+        console.warn("could not enqueue scan", cause);
+        skipped.push(file.name);
+      } finally {
+        setPreparing((count) => count - 1);
+      }
+    }
+    if (skipped.length > 0) {
+      setIntakeError(
+        `${skipped.length === 1 ? "Eine Datei konnte" : `${skipped.length} Dateien konnten`} nicht als Foto gelesen werden: ${skipped.join(", ")}. Bitte als JPEG oder PNG aufnehmen.`,
+      );
     }
   }
 
@@ -88,7 +167,12 @@ export function ErfassenPage() {
         title="Erfassen"
         subtitle="Beleg fotografieren — die Daten werden automatisch ausgelesen"
         actions={
-          <Button variant="secondary" onClick={() => setManualOpen(true)}>
+          <Button
+            variant="secondary"
+            onClick={() => setManualOpen(true)}
+            disabled={manualOpen}
+            className="disabled:opacity-50"
+          >
             <PencilLine size={16} aria-hidden="true" />
             Manuell erfassen
           </Button>
@@ -117,7 +201,6 @@ export function ErfassenPage() {
         tabIndex={-1}
       />
 
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wraps a real button */}
       <div
         onDrop={onDrop}
         onDragOver={(event) => {
@@ -143,23 +226,56 @@ export function ErfassenPage() {
             Foto auswählen
           </Button>
         </div>
-        {!hasApiKey ? (
+        <div aria-live="polite">
+          {preparing > 0 ? (
+            <p className="mt-4 flex items-center justify-center gap-2 text-sm text-fg-muted">
+              <span aria-hidden="true" className="flex shrink-0">
+                <Spinner size="sm" />
+              </span>
+              {preparing === 1
+                ? "Foto wird vorbereitet …"
+                : `${preparing} Fotos werden vorbereitet …`}
+            </p>
+          ) : null}
+          {intakeError ? (
+            <p className="mt-4 flex items-start justify-center gap-2 text-sm text-danger">
+              <AlertTriangle size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+              {intakeError}
+            </p>
+          ) : null}
+        </div>
+        {hasApiKey ? null : (
           <p className="mt-4 flex items-center justify-center gap-2 text-sm text-fg-muted">
-            <KeyRound size={16} aria-hidden="true" />
+            <KeyRound size={16} aria-hidden="true" className="shrink-0" />
             <span>
               Für die automatische Extraktion fehlt ein API-Key —{" "}
-              <Link to={ROUTES.einstellungen} className="text-accent-600 underline">
+              <Link to={ROUTES.einstellungen} className={SETTINGS_LINK_CLASS}>
                 in den Einstellungen einrichten
               </Link>
               . Fotos bleiben gespeichert.
             </span>
           </p>
-        ) : null}
+        )}
       </div>
 
       <div className="space-y-4">
+        {/* The manual card leads: opened by the user, it must not land off-screen below the scans. */}
+        {manualOpen ? (
+          <ReviewCard
+            source="manual"
+            focusOnMount
+            onSave={async (entry) => {
+              await addEntry(entry);
+              setManualOpen(false);
+            }}
+            onDiscard={() => setManualOpen(false)}
+          />
+        ) : null}
+
+        <QueryFallback loading={loading && jobs === undefined} error={error} />
+
         {queueRows.map((job) => (
-          <QueueRow key={job.id} job={job} />
+          <QueueRow key={job.id} job={job} hasApiKey={hasApiKey} />
         ))}
 
         {reviewJobs.map((job) => (
@@ -169,27 +285,23 @@ export function ErfassenPage() {
             initial={job.result}
             image={job.image}
             errorMessage={job.status === "failed" ? job.lastError : null}
+            errorAction={
+              job.status === "failed" && isConfigErrorMessage(job.lastError) ? (
+                <Link to={ROUTES.einstellungen} className={SETTINGS_LINK_CLASS}>
+                  Zu den Einstellungen
+                </Link>
+              ) : null
+            }
             onSave={async (entry) => {
               await addEntry(entry);
               await deleteJob(job.id);
             }}
-            onDiscard={() => void deleteJob(job.id)}
+            onDiscard={() => confirmDiscard(job)}
             onRetry={job.status === "failed" ? () => void retryJob(job.id) : undefined}
           />
         ))}
 
-        {manualOpen ? (
-          <ReviewCard
-            source="manual"
-            onSave={async (entry) => {
-              await addEntry(entry);
-              setManualOpen(false);
-            }}
-            onDiscard={() => setManualOpen(false)}
-          />
-        ) : null}
-
-        {queueRows.length === 0 && reviewJobs.length === 0 && !manualOpen ? (
+        {jobs !== undefined && queueRows.length === 0 && reviewJobs.length === 0 && !manualOpen ? (
           <EmptyState
             icon={<Camera size={40} aria-hidden="true" />}
             title="Keine offenen Scans"

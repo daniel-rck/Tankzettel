@@ -1,10 +1,12 @@
 import { Download, Pencil, ReceiptText, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { deleteEntry, sortNewestFirst, updateEntry } from "../../lib/db/entries.ts";
 import { getDB, useLiveQuery } from "../../lib/db/index.ts";
 import type { FuelEntry } from "../../lib/db/types.ts";
+import { QueryFallback } from "../../lib/QueryFallback.tsx";
 import { Badge, Button, Card, EmptyState, PageHeader } from "../../lib/ui/index.ts";
 import { CSV_FILENAME, entriesToCsv } from "../../lib/utils/csv.ts";
+import { downloadFile } from "../../lib/utils/download.ts";
 import {
   formatCurrency,
   formatDate,
@@ -14,19 +16,30 @@ import {
 } from "../../lib/utils/format.ts";
 import { ReviewCard } from "../erfassen/ReviewCard.tsx";
 
-function downloadFile(content: string, filename: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+/** "V-Markt vom 05.03.2026" — context for per-row button labels. */
+function describeEntry(entry: FuelEntry): string {
+  const station = entry.station || "Unbekannte Tankstelle";
+  return entry.date ? `${station} vom ${formatDate(entry.date)}` : `${station} ohne Datum`;
 }
 
-function EntryRow({ entry, onEdit }: { entry: FuelEntry; onEdit: () => void }) {
+function EntryRow({
+  entry,
+  onEdit,
+  restoreFocus,
+}: {
+  entry: FuelEntry;
+  onEdit: () => void;
+  /** The row's edit card just closed: hand focus back to its edit button. */
+  restoreFocus: boolean;
+}) {
+  const editRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (restoreFocus) editRef.current?.focus();
+  }, [restoreFocus]);
+
   function handleDelete(): void {
-    if (window.confirm("Diesen Beleg wirklich löschen?")) {
+    if (window.confirm(`Beleg ${describeEntry(entry)} wirklich löschen?`)) {
       void deleteEntry(entry.id);
     }
   }
@@ -61,10 +74,21 @@ function EntryRow({ entry, onEdit }: { entry: FuelEntry; onEdit: () => void }) {
           </p>
         ) : null}
       </div>
-      <Button variant="ghost" size="sm" aria-label="Beleg bearbeiten" onClick={onEdit}>
+      <Button
+        ref={editRef}
+        variant="ghost"
+        size="sm"
+        aria-label={`Beleg ${describeEntry(entry)} bearbeiten`}
+        onClick={onEdit}
+      >
         <Pencil size={16} aria-hidden="true" />
       </Button>
-      <Button variant="ghost" size="sm" aria-label="Beleg löschen" onClick={handleDelete}>
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label={`Beleg ${describeEntry(entry)} löschen`}
+        onClick={handleDelete}
+      >
         <Trash2 size={16} aria-hidden="true" />
       </Button>
     </li>
@@ -73,7 +97,8 @@ function EntryRow({ entry, onEdit }: { entry: FuelEntry; onEdit: () => void }) {
 
 export function BelegePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const { data } = useLiveQuery("entries", async () => {
+  const [lastEditedId, setLastEditedId] = useState<string | null>(null);
+  const { data, loading, error } = useLiveQuery("entries", async () => {
     const db = await getDB();
     return sortNewestFirst(await db.getAll("entries"));
   });
@@ -82,15 +107,30 @@ export function BelegePage() {
   const totalLiters = entries.reduce((sum, entry) => sum + (entry.liters ?? 0), 0);
   const totalCost = entries.reduce((sum, entry) => sum + (entry.total ?? 0), 0);
 
+  function startEditing(id: string): void {
+    setLastEditedId(null);
+    setEditingId(id);
+  }
+
+  function stopEditing(): void {
+    setLastEditedId(editingId);
+    setEditingId(null);
+  }
+
   return (
     <>
       <PageHeader
         title="Belege"
-        subtitle={`${entries.length} ${entries.length === 1 ? "Eintrag" : "Einträge"}`}
+        subtitle={
+          data === undefined
+            ? undefined
+            : `${entries.length} ${entries.length === 1 ? "Eintrag" : "Einträge"}`
+        }
         actions={
           <Button
             variant="secondary"
             disabled={entries.length === 0}
+            className="disabled:opacity-50"
             onClick={() => downloadFile(entriesToCsv(entries), CSV_FILENAME, "text/csv")}
           >
             <Download size={16} aria-hidden="true" />
@@ -99,7 +139,9 @@ export function BelegePage() {
         }
       />
 
-      {entries.length === 0 ? (
+      {data === undefined ? (
+        <QueryFallback loading={loading} error={error} />
+      ) : entries.length === 0 ? (
         <EmptyState
           icon={<ReceiptText size={40} aria-hidden="true" />}
           title="Noch keine Belege"
@@ -117,15 +159,21 @@ export function BelegePage() {
                   <ReviewCard
                     entry={entry}
                     source={entry.source}
+                    focusOnMount
                     onSave={async (updated) => {
                       await updateEntry(updated);
-                      setEditingId(null);
+                      stopEditing();
                     }}
-                    onDiscard={() => setEditingId(null)}
+                    onDiscard={stopEditing}
                   />
                 </li>
               ) : (
-                <EntryRow key={entry.id} entry={entry} onEdit={() => setEditingId(entry.id)} />
+                <EntryRow
+                  key={entry.id}
+                  entry={entry}
+                  onEdit={() => startEditing(entry.id)}
+                  restoreFocus={entry.id === lastEditedId}
+                />
               ),
             )}
           </ul>

@@ -1,7 +1,7 @@
 import { getDB, notifyMutation } from "../db/db.ts";
 import type { ScanJob } from "../db/types.ts";
 import { downscale } from "../gemini/downscale.ts";
-import { ExtractionError, isRetryable } from "../gemini/errors.ts";
+import { ExtractionError, isConfigError, isRetryable } from "../gemini/errors.ts";
 import { extractReceipt } from "../gemini/extract.ts";
 import { getApiKey, getModel } from "../settings.ts";
 
@@ -16,6 +16,7 @@ const eligibleAt = new Map<string, number>();
 let currentDrain: Promise<void> | null = null;
 let rerunRequested = false;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryTimerAt = 0;
 let started = false;
 
 function backoffMs(attempts: number): number {
@@ -72,28 +73,58 @@ async function nextEligibleJob(): Promise<ScanJob | null> {
   const now = Date.now();
   const pending = jobs
     .filter((job) => job.status === "pending" && (eligibleAt.get(job.id) ?? 0) <= now)
-    .sort((a, b) => a.createdAt - b.createdAt);
+    .toSorted((a, b) => a.createdAt - b.createdAt);
   return pending[0] ?? null;
 }
 
+/**
+ * Keep one timer armed for the earliest backoff deadline. A new, sooner
+ * deadline (e.g. a 30 s network retry while an 8 min rate-limit backoff is
+ * pending) replaces the later timer instead of waiting behind it.
+ */
 function scheduleRetryTimer(): void {
-  if (retryTimer !== null) return;
   const now = Date.now();
   const future = Array.from(eligibleAt.values()).filter((at) => at > now);
   if (future.length === 0) return;
-  const delay = Math.min(...future) - now;
+  const earliest = Math.min(...future);
+  if (retryTimer !== null) {
+    if (retryTimerAt <= earliest) return;
+    clearTimeout(retryTimer);
+  }
+  retryTimerAt = earliest;
   retryTimer = setTimeout(() => {
     retryTimer = null;
     void drainQueue();
-  }, delay);
+  }, earliest - now);
 }
 
-async function processJob(job: ScanJob): Promise<void> {
+/** Result of one processed job, as far as the drain loop cares. */
+type ProcessOutcome = "done" | "config-error";
+
+async function claimJob(id: string): Promise<ScanJob | null> {
+  // Check-and-set in one transaction: a job the user discarded between
+  // selection and claim must not be resurrected.
   const db = await getDB();
-  await db.put("scanQueue", { ...job, status: "processing" });
+  const tx = db.transaction("scanQueue", "readwrite");
+  const current = await tx.store.get(id);
+  if (!current || current.status !== "pending") {
+    await tx.done;
+    return null;
+  }
+  const claimed: ScanJob = { ...current, status: "processing" };
+  await tx.store.put(claimed);
+  await tx.done;
   notifyMutation("scanQueue");
+  return claimed;
+}
+
+async function processJob(selected: ScanJob): Promise<ProcessOutcome> {
+  const job = await claimJob(selected.id);
+  if (!job) return "done";
+  const db = await getDB();
 
   let update: Partial<ScanJob>;
+  let outcome: ProcessOutcome = "done";
   try {
     const result = await extractReceipt(job.image, { apiKey: getApiKey(), model: getModel() });
     update = { status: "review", result, lastError: null };
@@ -115,25 +146,31 @@ async function processJob(job: ScanJob): Promise<void> {
       // failures (auth/unparsable) keep the counter untouched.
       const attempts = isRetryable(kind) ? job.attempts + 1 : job.attempts;
       update = { status: "failed", attempts, lastError: message };
+      if (isConfigError(kind)) outcome = "config-error";
     }
   }
 
   // The user may have discarded the job while extraction ran — never
   // resurrect it (or overwrite a concurrent reset) with a stale put.
-  const current = await db.get("scanQueue", job.id);
+  const tx = db.transaction("scanQueue", "readwrite");
+  const current = await tx.store.get(job.id);
   if (current && current.status === "processing") {
-    await db.put("scanQueue", { ...current, ...update });
+    await tx.store.put({ ...current, ...update });
   } else {
     eligibleAt.delete(job.id);
   }
+  await tx.done;
   notifyMutation("scanQueue");
   scheduleRetryTimer();
+  return outcome;
 }
 
 /**
  * Process pending jobs sequentially, oldest first, while online and a key
  * exists. Re-entrant calls coalesce into the running pass; the returned
- * promise resolves once the queue is fully drained.
+ * promise resolves once the queue is fully drained. A configuration error
+ * (bad key, unknown model) ends the pass: the remaining jobs stay pending
+ * until the settings change or the user retries.
  */
 export function drainQueue(): Promise<void> {
   if (currentDrain) {
@@ -146,12 +183,25 @@ export function drainQueue(): Promise<void> {
       while (isOnline() && getApiKey() !== "") {
         const job = await nextEligibleJob();
         if (!job) break;
-        await processJob(job);
+        if ((await processJob(job)) === "config-error") {
+          // Requests that queued up behind the failing job would hit the
+          // same settings — drop them; a settings change drains again.
+          rerunRequested = false;
+          break;
+        }
       }
     } while (rerunRequested);
-  })().finally(() => {
-    currentDrain = null;
-  });
+  })()
+    .catch((error: unknown) => {
+      // IndexedDB failure: log it; the next trigger tries again.
+      console.error("scanQueue drain failed", error);
+    })
+    .finally(() => {
+      currentDrain = null;
+      // A drainQueue() call in the microtask gap between the loop's last
+      // check and this cleanup joined a pass that was already over.
+      if (rerunRequested) void drainQueue();
+    });
   return currentDrain;
 }
 
@@ -186,5 +236,6 @@ export function resetQueueStateForTests(): void {
     clearTimeout(retryTimer);
     retryTimer = null;
   }
+  retryTimerAt = 0;
   rerunRequested = false;
 }

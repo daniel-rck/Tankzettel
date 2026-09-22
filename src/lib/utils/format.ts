@@ -77,11 +77,15 @@ export function formatDecimalInput(value: number | null | undefined): string {
 }
 
 /**
- * Parse a German or technical decimal string: "46.92", "46,92", "1.234,56".
- * Returns null for garbage or empty input.
+ * Parse a German or technical decimal string: "46.92", "46,92", "1.234,56",
+ * ",5", "46,92 €", "32,1 l". Receipt values are never negative, so a sign is
+ * rejected. Returns null for garbage or empty input.
  */
 export function parseDecimal(input: string): number | null {
-  const trimmed = input.trim().replace(/\s/g, "");
+  const trimmed = input
+    .trim()
+    .replace(/\s*(€|eur|l)$/i, "")
+    .replace(/\s/g, "");
   if (trimmed === "") return null;
 
   let normalized = trimmed;
@@ -98,7 +102,19 @@ export function parseDecimal(input: string): number | null {
     normalized = normalized.replace(",", ".");
   }
 
-  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
+  if (!/^(\d+\.?\d*|\.\d+)$/.test(normalized)) return null;
   const value = Number(normalized);
   return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Odometer readings are whole kilometres, typed German-style: "123.456",
+ * "123 456" and "123456" all mean 123456 km. A trailing "km" is ignored.
+ */
+export function parseKilometers(input: string): number | null {
+  const trimmed = input.trim().replace(/\s*km$/i, "");
+  if (trimmed === "") return null;
+  if (!/^\d{1,3}([.\s']\d{3})+$|^\d+$/.test(trimmed)) return null;
+  const value = Number(trimmed.replace(/[.\s']/g, ""));
+  return Number.isSafeInteger(value) ? value : null;
 }

@@ -1,17 +1,51 @@
 import { describe, expect, it } from "vitest";
 import { makeEntry } from "../../test/fixtures.ts";
-import { createBackup, mergeEntries, parseBackup } from "./backup.ts";
+import { backupFilename, createBackup, mergeEntries, parseBackup } from "./backup.ts";
 
 describe("backup round-trip", () => {
   it("export → parse yields the same entries", () => {
     const entries = [makeEntry(), makeEntry({ date: null, liters: null })];
-    expect(parseBackup(createBackup(entries))).toEqual(entries);
+    expect(parseBackup(createBackup(entries))).toEqual({ entries, invalid: 0 });
+  });
+
+  it("drops and counts records with wrongly typed fields", () => {
+    const good = makeEntry({ id: "good" });
+    const text = JSON.stringify({
+      version: 1,
+      entries: [
+        good,
+        { ...makeEntry(), liters: "46,92" },
+        { ...makeEntry(), date: "05.03.2026" },
+        { ...makeEntry(), source: "sync" },
+        { ...makeEntry(), total: { amount: 50 } },
+        { ...makeEntry(), date: "2026-02-31" },
+        { ...makeEntry(), time: "25:99" },
+        { ...makeEntry(), total: -50 },
+        { ...makeEntry(), odometer: 123.456 },
+        "not an object",
+      ],
+    });
+    expect(parseBackup(text)).toEqual({ entries: [good], invalid: 9 });
+  });
+
+  it("fills omitted optional fields instead of storing undefined", () => {
+    const { date: _date, odometer: _odometer, station: _station, ...rest } = makeEntry({ id: "x" });
+    const [entry] = parseBackup(JSON.stringify({ version: 1, entries: [rest] })).entries;
+    expect(entry).toMatchObject({ id: "x", date: null, odometer: null, station: "" });
   });
 
   it("rejects invalid JSON and wrong versions", () => {
-    expect(() => parseBackup("not json")).toThrow();
-    expect(() => parseBackup(JSON.stringify({ version: 2, entries: [] }))).toThrow();
-    expect(() => parseBackup(JSON.stringify({ entries: [] }))).toThrow();
+    expect(() => parseBackup("not json")).toThrow("kein gültiges JSON");
+    expect(() => parseBackup(JSON.stringify({ version: 2, entries: [] }))).toThrow(
+      "version 1 erwartet",
+    );
+    expect(() => parseBackup(JSON.stringify({ entries: [] }))).toThrow("version 1 erwartet");
+  });
+});
+
+describe("backupFilename", () => {
+  it("carries the local date", () => {
+    expect(backupFilename(new Date(2026, 8, 2, 23, 30))).toBe("tankzettel-backup-2026-09-02.json");
   });
 });
 
@@ -28,7 +62,7 @@ describe("mergeEntries", () => {
     ];
     const { toWrite, report } = mergeEntries(existing, imported);
     expect(report).toEqual({ added: 1, updated: 1, skipped: 1 });
-    expect(toWrite.map((entry) => entry.id).sort()).toEqual(["a", "c"]);
+    expect(toWrite.map((entry) => entry.id).toSorted()).toEqual(["a", "c"]);
     expect(toWrite.find((entry) => entry.id === "a")?.station).toBe("Neu");
   });
 });

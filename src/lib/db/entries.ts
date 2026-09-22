@@ -1,3 +1,4 @@
+import { compareChronologically } from "../utils/sort.ts";
 import { getDB, notifyMutation } from "./db.ts";
 import type { FuelEntry } from "./types.ts";
 
@@ -6,13 +7,14 @@ export async function getAllEntries(): Promise<FuelEntry[]> {
   return db.getAll("entries");
 }
 
-/** Entries sorted newest first (by date, falling back to createdAt). */
+/**
+ * Entries newest first. Undated entries (usually incomplete, just captured)
+ * lead the list, where they are easy to spot and complete.
+ */
 export function sortNewestFirst(entries: FuelEntry[]): FuelEntry[] {
-  return [...entries].sort((a, b) => {
-    const dateA = a.date ?? "";
-    const dateB = b.date ?? "";
-    if (dateA !== dateB) return dateB.localeCompare(dateA);
-    return b.createdAt - a.createdAt;
+  return entries.toSorted((a, b) => {
+    if ((a.date === null) !== (b.date === null)) return a.date === null ? -1 : 1;
+    return compareChronologically(b, a);
   });
 }
 

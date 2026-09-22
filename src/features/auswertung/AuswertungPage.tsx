@@ -1,9 +1,17 @@
 import type { ChartConfiguration } from "chart.js";
 import { ChartLine } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
-import { computeConsumption, computeKpis, monthlyCosts, pricePoints } from "../../lib/analytics.ts";
+import {
+  computeConsumption,
+  computeKpis,
+  type MonthlyCost,
+  monthlyCosts,
+  type PricePoint,
+  pricePoints,
+} from "../../lib/analytics.ts";
 import { getDB, useLiveQuery } from "../../lib/db/index.ts";
-import { Card, EmptyState, PageHeader, useTheme } from "../../lib/ui/index.ts";
+import { QueryFallback } from "../../lib/QueryFallback.tsx";
+import { Card, EmptyState, PageHeader } from "../../lib/ui/index.ts";
 import {
   formatCurrency,
   formatDate,
@@ -11,7 +19,7 @@ import {
   formatLiters,
   formatPricePerLiter,
 } from "../../lib/utils/format.ts";
-import { ChartCanvas, themeColor } from "./ChartCanvas.tsx";
+import { ChartCanvas, type ChartColors, useChartColors } from "./ChartCanvas.tsx";
 
 /** KPI row in receipt style: label, dotted leader, mono value. */
 function KpiRow({ label, children }: { label: string; children: ReactNode }) {
@@ -24,9 +32,111 @@ function KpiRow({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+const PRICE_TICK = new Intl.NumberFormat("de-DE", {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+});
+const EURO_TICK = new Intl.NumberFormat("de-DE", {
+  style: "currency",
+  currency: "EUR",
+  maximumFractionDigits: 0,
+});
+
+function priceChartConfig(points: PricePoint[], colors: ChartColors): ChartConfiguration {
+  return {
+    type: "line",
+    data: {
+      labels: points.map((p) => formatDate(p.date)),
+      datasets: [
+        {
+          label: "Preis €/l",
+          data: points.map((p) => p.pricePerLiter),
+          borderColor: colors.accent,
+          backgroundColor: colors.accent,
+          pointRadius: 3,
+          tension: 0.2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      locale: "de-DE",
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: (item) => formatPricePerLiter(Number(item.parsed.y)) },
+        },
+      },
+      scales: {
+        x: { ticks: { color: colors.text }, grid: { color: colors.grid } },
+        y: {
+          ticks: {
+            color: colors.text,
+            callback: (value) => `${PRICE_TICK.format(Number(value))} €`,
+          },
+          grid: { color: colors.grid },
+        },
+      },
+    },
+  };
+}
+
+function costChartConfig(monthly: MonthlyCost[], colors: ChartColors): ChartConfiguration {
+  return {
+    type: "bar",
+    data: {
+      labels: monthly.map((m) => m.label),
+      datasets: [
+        {
+          label: "Kosten €",
+          data: monthly.map((m) => m.total),
+          backgroundColor: colors.accentFill,
+          hoverBackgroundColor: colors.accent,
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      locale: "de-DE",
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (item) => formatCurrency(Number(item.parsed.y)) } },
+      },
+      scales: {
+        x: { ticks: { color: colors.text }, grid: { display: false } },
+        y: {
+          ticks: { color: colors.text, callback: (value) => EURO_TICK.format(Number(value)) },
+          grid: { color: colors.grid },
+        },
+      },
+    },
+  };
+}
+
+/** Screen-reader summary of the price chart: range and extremes. */
+function describePrices(points: PricePoint[]): string {
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (!first || !last) return "Liniendiagramm: Preis pro Liter über die Zeit";
+  const prices = points.map((p) => p.pricePerLiter);
+  return (
+    `Liniendiagramm: Preis pro Liter vom ${formatDate(first.date)} bis ${formatDate(last.date)}, ` +
+    `zuletzt ${formatPricePerLiter(last.pricePerLiter)}, ` +
+    `zwischen ${formatPricePerLiter(Math.min(...prices))} und ${formatPricePerLiter(Math.max(...prices))}`
+  );
+}
+
+function describeCosts(monthly: MonthlyCost[]): string {
+  const parts = monthly.map((m) => `${m.label}: ${formatCurrency(m.total)}`);
+  return `Balkendiagramm: Tankkosten pro Monat. ${parts.join(", ")}`;
+}
+
 export function AuswertungPage() {
-  const { resolvedTheme } = useTheme();
-  const { data } = useLiveQuery("entries", async () => {
+  const colors = useChartColors();
+  const { data, loading, error } = useLiveQuery("entries", async () => {
     const db = await getDB();
     return db.getAll("entries");
   });
@@ -38,69 +148,23 @@ export function AuswertungPage() {
   const consumption = useMemo(() => computeConsumption(entries), [entries]);
 
   // Theme-aware chart configs; re-created when data or theme changes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resolvedTheme forces re-reading the CSS variables
-  const priceChart = useMemo<ChartConfiguration | null>(() => {
-    if (points.length < 2) return null;
-    const accent = themeColor("--color-accent-500");
-    const grid = themeColor("--color-border");
-    const text = themeColor("--color-fg-muted");
-    return {
-      type: "line",
-      data: {
-        labels: points.map((p) => formatDate(p.date)),
-        datasets: [
-          {
-            label: "Preis €/l",
-            data: points.map((p) => p.pricePerLiter),
-            borderColor: accent,
-            backgroundColor: accent,
-            pointRadius: 3,
-            tension: 0.2,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: text }, grid: { color: grid } },
-          y: { ticks: { color: text }, grid: { color: grid } },
-        },
-      },
-    };
-  }, [points, resolvedTheme]);
+  const priceChart = useMemo(
+    () => (points.length < 2 ? null : priceChartConfig(points, colors)),
+    [points, colors],
+  );
+  const costChart = useMemo(
+    () => (monthly.length === 0 ? null : costChartConfig(monthly, colors)),
+    [monthly, colors],
+  );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resolvedTheme forces re-reading the CSS variables
-  const costChart = useMemo<ChartConfiguration | null>(() => {
-    if (monthly.length === 0) return null;
-    const accent = themeColor("--color-accent-400");
-    const grid = themeColor("--color-border");
-    const text = themeColor("--color-fg-muted");
-    return {
-      type: "bar",
-      data: {
-        labels: monthly.map((m) => m.label),
-        datasets: [
-          {
-            label: "Kosten €",
-            data: monthly.map((m) => m.total),
-            backgroundColor: accent,
-            borderRadius: 4,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { color: text }, grid: { display: false } },
-          y: { ticks: { color: text }, grid: { color: grid } },
-        },
-      },
-    };
-  }, [monthly, resolvedTheme]);
+  if (data === undefined) {
+    return (
+      <>
+        <PageHeader title="Auswertung" />
+        <QueryFallback loading={loading} error={error} />
+      </>
+    );
+  }
 
   if (entries.length === 0) {
     return (
@@ -148,10 +212,7 @@ export function AuswertungPage() {
         <Card>
           <h3 className="mb-3 text-base font-medium">Preisverlauf</h3>
           {priceChart ? (
-            <ChartCanvas
-              config={priceChart}
-              ariaLabel="Liniendiagramm: Preis pro Liter über die Zeit"
-            />
+            <ChartCanvas config={priceChart} ariaLabel={describePrices(points)} />
           ) : (
             <p className="text-sm text-fg-muted">
               Mindestens zwei Belege mit Datum und Literpreis nötig.
@@ -162,7 +223,7 @@ export function AuswertungPage() {
         <Card>
           <h3 className="mb-3 text-base font-medium">Kosten pro Monat</h3>
           {costChart ? (
-            <ChartCanvas config={costChart} ariaLabel="Balkendiagramm: Tankkosten pro Monat" />
+            <ChartCanvas config={costChart} ariaLabel={describeCosts(monthly)} />
           ) : (
             <p className="text-sm text-fg-muted">Noch keine Belege mit Datum und Betrag.</p>
           )}

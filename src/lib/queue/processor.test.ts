@@ -58,7 +58,7 @@ afterEach(() => {
 
 describe("scan queue state machine", () => {
   it("pending → review on a successful extraction", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       geminiResponse({
         date: "2026-06-01",
         time: "09:30",
@@ -88,7 +88,7 @@ describe("scan queue state machine", () => {
 
   it("429 → stays pending with backoff and retries later", async () => {
     const fetchMock = vi
-      .fn()
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response("{}", { status: 429 }))
       .mockResolvedValue(geminiResponse({ liters: 40 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -114,7 +114,10 @@ describe("scan queue state machine", () => {
   });
 
   it("403 → failed with a German key error", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 403 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", { status: 403 })),
+    );
 
     const job = await putJob();
     await drainQueue();
@@ -129,7 +132,9 @@ describe("scan queue state machine", () => {
   it("unparsable response → failed", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [] }), { status: 200 })),
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(JSON.stringify({ candidates: [] }), { status: 200 })),
     );
 
     const job = await putJob();
@@ -141,7 +146,7 @@ describe("scan queue state machine", () => {
   });
 
   it("offline → job stays pending, no request is made", async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
     setOnline(false);
 
@@ -154,7 +159,7 @@ describe("scan queue state machine", () => {
 
   it("without an API key the queue does not run", async () => {
     localStorage.clear();
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await putJob();
@@ -165,7 +170,7 @@ describe("scan queue state machine", () => {
   });
 
   it("network error → stays pending without burning attempts", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new TypeError("fetch failed")));
 
     const job = await putJob();
     await drainQueue();
@@ -176,7 +181,10 @@ describe("scan queue state machine", () => {
   });
 
   it("gives up after 5 attempts on persistent 5xx", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 500 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", { status: 500 })),
+    );
 
     const job = await putJob();
     for (let i = 0; i < 5; i += 1) {
@@ -191,7 +199,7 @@ describe("scan queue state machine", () => {
 
   it("retryJob resets a failed job and processes it again", async () => {
     const fetchMock = vi
-      .fn()
+      .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response("{}", { status: 403 }))
       .mockResolvedValue(geminiResponse({ total: 50 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -213,7 +221,7 @@ describe("scan queue state machine", () => {
     let jobId = "";
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation(async () => {
+      vi.fn<typeof fetch>().mockImplementation(async () => {
         // Simulate the user hitting "Scan verwerfen" mid-extraction.
         await deleteJob(jobId);
         return geminiResponse({ total: 50 });
@@ -239,7 +247,7 @@ describe("scan queue state machine", () => {
     const order: string[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation(async () => {
+      vi.fn<typeof fetch>().mockImplementation(async () => {
         order.push("call");
         return geminiResponse({ total: 1 });
       }),
@@ -252,5 +260,57 @@ describe("scan queue state machine", () => {
     expect((await getJob(older.id))?.status).toBe("review");
     expect((await getJob(newer.id))?.status).toBe("review");
     expect(order).toHaveLength(2);
+  });
+
+  it("stops the pass on a bad key instead of failing every job", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", { status: 403 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = await putJob({ createdAt: 1 });
+    const second = await putJob({ createdAt: 2 });
+    await drainQueue();
+
+    expect((await getJob(first.id))?.status).toBe("failed");
+    expect((await getJob(second.id))?.status).toBe("pending");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("404 → failed with a model hint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", { status: 404 })),
+    );
+
+    const job = await putJob();
+    await drainQueue();
+
+    const updated = await getJob(job.id);
+    expect(updated?.status).toBe("failed");
+    expect(updated?.lastError).toContain("Modell nicht gefunden");
+  });
+
+  it("a sooner retry deadline replaces a later backoff timer", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response("{}", { status: 429 })) // A: 2 min backoff
+        .mockRejectedValueOnce(new TypeError("fetch failed")) // B: 30 s retry
+        .mockResolvedValue(geminiResponse({ total: 1 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const a = await putJob({ createdAt: 1 });
+      const b = await putJob({ createdAt: 2 });
+      await drainQueue();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      // After 30 s only B is due; it must not wait behind A's 2 min timer.
+      // No manual drain here: only the armed timer may pick B up.
+      await vi.advanceTimersByTimeAsync(31_000);
+      await vi.waitFor(async () => expect((await getJob(b.id))?.status).toBe("review"));
+      expect((await getJob(a.id))?.status).toBe("pending");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

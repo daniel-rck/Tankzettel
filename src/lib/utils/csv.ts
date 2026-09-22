@@ -12,8 +12,11 @@ function csvNumber(value: number | null, decimals: number): string {
 }
 
 function csvField(value: string): string {
-  if (/[;"\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
+  // Text from receipts or imported backups must never run as a spreadsheet
+  // formula: a leading = + - @ (or tab/CR) is neutralised with an apostrophe.
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  if (/[;"\n\r]/.test(safe)) return `"${safe.replace(/"/g, '""')}"`;
+  return safe;
 }
 
 /**

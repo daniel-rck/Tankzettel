@@ -45,7 +45,7 @@ Basis ist die Foundation [`daniel-rck/web-base`](https://github.com/daniel-rck/w
 ```bash
 bun install
 bun run dev        # Vite-Dev-Server
-bun run lint       # Biome
+bun run lint       # oxlint + oxfmt --check
 bun run typecheck  # tsc (App + SW + Worker)
 bun run test       # Vitest
 bun run build      # SPA + PWA

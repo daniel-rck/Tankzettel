@@ -1,5 +1,6 @@
 export type ExtractionErrorKind =
-  | "auth" // HTTP 400/403 — invalid key
+  | "auth" // HTTP 400/401/403 — invalid key
+  | "model" // HTTP 404 — unknown model id
   | "rate-limit" // HTTP 429
   | "server" // HTTP 5xx
   | "network" // fetch failed / offline
@@ -12,6 +13,7 @@ export function isRetryable(kind: ExtractionErrorKind): boolean {
 
 const USER_MESSAGES: Record<ExtractionErrorKind, string> = {
   auth: "API-Key ungültig — in den Einstellungen prüfen.",
+  model: "Modell nicht gefunden — Modell-ID in den Einstellungen prüfen.",
   "rate-limit": "Rate-Limit erreicht — wird automatisch erneut versucht.",
   server: "Gemini-Server nicht erreichbar — wird automatisch erneut versucht.",
   network: "Keine Verbindung — wird bei Internetzugang erneut versucht.",
@@ -32,5 +34,22 @@ export class ExtractionError extends Error {
 export function errorKindFromStatus(status: number): ExtractionErrorKind {
   if (status === 429) return "rate-limit";
   if (status >= 500) return "server";
-  return "auth"; // 400/403 and other client errors → key/config problem
+  if (status === 404) return "model";
+  return "auth"; // 400/401/403 and other client errors → key/config problem
+}
+
+/**
+ * Configuration errors fail every job the same way — once one hits, the
+ * queue stops instead of burning through the rest with the same settings.
+ */
+export function isConfigError(kind: ExtractionErrorKind): boolean {
+  return kind === "auth" || kind === "model";
+}
+
+/**
+ * Jobs persist only the German message, not the kind — recognise the config
+ * errors by their text so the UI can link to the settings.
+ */
+export function isConfigErrorMessage(message: string | null): boolean {
+  return message === USER_MESSAGES.auth || message === USER_MESSAGES.model;
 }

@@ -6,7 +6,7 @@ change when the design changes.
 Foundation: [`daniel-rck/web-base`](https://github.com/daniel-rck/web-base).
 This spec only describes what is *specific* to Tankzettel. Everything not
 mentioned here (stack, layout system, storage patterns, PWA setup, worker,
-CI, Biome, hygiene) follows the web-base skill and its `references/` verbatim.
+CI, oxlint + oxfmt, hygiene) follows the web-base skill and its `references/` verbatim.
 Scaffold with `bunx github:daniel-rck/web-base init`, then `add core`.
 
 A working prototype exists as a Claude.ai artifact (single-file React). Its
@@ -173,6 +173,14 @@ to the API.
   none required — validation happens app-side). With `responseSchema` there
   is **no** markdown-fence stripping; `JSON.parse` the candidate text
   directly, inside a try/catch.
+- Timeout: requests abort after **60 s** (`AbortSignal.timeout`) and count
+  as a network error — a hung fetch would otherwise block the sequential
+  queue until restart.
+- Normalisation: `date` is accepted as `YYYY-MM-DD` or German `DD.MM.YYYY`
+  and stored as ISO; `time` as `H:MM`/`HH.MM`/`HH:MM:SS` and stored as
+  `HH:MM`; impossible or unknown formats become `null` (a malformed value
+  would render as an empty date input yet still be saved). Non-number
+  numerics become `null`.
 
 ```typescript
 export const DEFAULT_MODEL = "gemini-2.5-flash";
@@ -204,7 +212,8 @@ Mapped to German user messages in one place (`src/lib/gemini/errors.ts`):
 | Condition | Job status | Handling |
 |---|---|---|
 | no API key configured | stays `pending` | scan area shows settings hint; queue does not run |
-| HTTP 400 / 403 | `failed` | "API-Key ungültig — in den Einstellungen prüfen." |
+| HTTP 400 / 401 / 403 | `failed`, drain stops | "API-Key ungültig — in den Einstellungen prüfen." |
+| HTTP 404 | `failed`, drain stops | "Modell nicht gefunden — Modell-ID in den Einstellungen prüfen." |
 | HTTP 429 | stays `pending` | retry with backoff (§5), attempt counter++ |
 | network error / offline | stays `pending` | retried on `online` event |
 | 5xx | stays `pending` | backoff retry |
@@ -212,6 +221,13 @@ Mapped to German user messages in one place (`src/lib/gemini/errors.ts`):
 
 `failed` jobs render as an empty review card (manual completion) with the
 error message and a "Erneut versuchen" action that resets to `pending`.
+Key/model errors ("config errors") also link to Einstellungen, and end the
+current drain pass: the remaining jobs would fail identically, so they stay
+`pending` until the settings change or the user retries.
+
+"Key testen" distinguishes *ok*, *Key ungültig*, *Modell nicht gefunden*,
+*Gemini nicht verfügbar* (429/5xx) and *Keine Verbindung* — being offline or
+rate-limited must not read as a bad key.
 
 ---
 
@@ -224,7 +240,8 @@ online (one code path).
   `ScanJob` with `status: "pending"` → `scanQueue` store → `notifyMutation`.
 - **Drain**: a module-level processor (started from `App`) runs when
   (a) app start, (b) `window` `online` event, (c) a job is enqueued, and
-  (d) after each settings change of the API key. It processes jobs
+  (d) after the API key or model is changed (committed on blur/Enter, never
+  per keystroke — a half-typed key would fail pending jobs). It processes jobs
   **sequentially** (free-tier RPM is low), oldest first, only while
   `navigator.onLine` and a key exists.
 - **Backoff**: on 429/5xx, delay `min(2 ** attempts, 8)` minutes before the
@@ -232,7 +249,11 @@ online (one code path).
   tracked in-memory (the `ScanJob` schema stays sync-compatible); after an
   app restart pending jobs are simply eligible again. Network errors don't
   consume attempts — they are retried on the `online` event (plus a gentle
-  30 s timer for "online but unreachable" cases).
+  30 s timer for "online but unreachable" cases). One timer is armed for the
+  earliest deadline; a sooner deadline replaces a later one.
+- **Claiming** a job (`pending` → `processing`) and writing its result are
+  check-and-set inside one transaction, so a job discarded meanwhile is never
+  resurrected.
 - **Review**: success sets `result` + `status: "review"`. Confirming a review
   card creates the `FuelEntry` (`source: "scan"`) and deletes the job —
   including its `image` Blob, unless `keep-photos` is on (then the job is
@@ -240,8 +261,11 @@ online (one code path).
   a later photo archive and ships hidden if not trivially wanted — decide at
   implementation, see §12).
 - The Erfassen page renders the queue live via `useLiveQuery("scanQueue", …)`:
-  pending/processing jobs as compact rows with a spinner, review/failed jobs
-  as editable cards.
+  pending jobs as compact rows with a clock icon (and, without a key, a link
+  to the settings), processing jobs with a spinner, review/failed jobs as
+  editable cards. Discarding a scan asks for confirmation (the photo is the
+  only copy). Files the browser can't decode (e.g. HEIC outside Safari) or
+  non-images are reported by name instead of failing silently.
 
 `navigator.storage.persist()` is requested once after the first entry is
 saved (best-effort, ignore the result).
@@ -256,17 +280,27 @@ failed jobs, and manual entry.
 - Fields: Datum (`<input type="date">`), Zeit, Tankstelle, Ort, Kraftstoff,
   Liter, Preis €/l, Betrag €, km-Stand (optional). Numeric inputs are
   `inputMode="decimal"` text fields; parsing accepts both `46.92` and
-  `46,92` (and `1.234,56`).
+  `46,92` (and `1.234,56`, `,5`, a trailing `€`/`l`) and rejects negatives.
+  The **km-Stand** is whole kilometres typed German-style: `123.456`,
+  `123 456` and `123456` all mean 123456 km. Unparseable input marks the
+  field invalid (`aria-invalid` + hint) and blocks saving.
 - **Plausibility**: if `|liters × pricePerLiter − total| > 0.05` → inline
   warning "Liter × Preis ergibt nicht den Betrag — bitte prüfen." (non-blocking).
-- **Duplicate**: if an existing entry has the same `date` and
-  `|Δtotal| < 0.01` → inline warning "Möglicherweise schon erfasst." (non-blocking).
+- **Duplicate**: if an existing entry has the same `date` and the same
+  `total` in whole cents → inline warning "Möglicherweise schon erfasst." (non-blocking).
 - Saving requires at least `liters` or `total` to be a valid number.
 - **Edit**: the same card edits saved entries inline on the Belege page
   (`entry` prop, one entry at a time): all fields prefill incl. odometer,
   `id`/`createdAt`/`source` are preserved, `updatedAt` is bumped via
   `updateEntry()`, the duplicate check excludes the entry itself, and the
   primary action reads "Speichern" instead of "Übernehmen".
+- A card keeps one entry id across save attempts, so a retry after a
+  half-completed save (entry written, scan job not deleted) overwrites
+  instead of duplicating.
+- The card is a `<form>` (Enter saves); warnings sit in a polite live
+  region; a failed save shows "Speichern fehlgeschlagen". A card the user
+  opens (manual entry, edit) takes focus; closing an edit returns focus to
+  the row's edit button. The manual card renders above the scan cards.
 
 ---
 
@@ -286,6 +320,17 @@ German feature folder names (family convention, cf. Hausverwaltung).
 List rows and review cards use the shared `Card`/`Button`/`Badge`/`EmptyState`
 primitives.
 
+Routing extras (`src/lib/router.tsx`, `src/lib/RouteError.tsx`): a pathless
+error boundary inside the shell shows a German "Neu laden" page (typically a
+lazy chunk gone after an update), `*` renders a German 404, and a spinner
+covers the first lazy load. Pages backed by `useLiveQuery` show a spinner
+until the first result and an error card if IndexedDB fails — never the
+empty state. Belege sort newest first by date → time → `createdAt`, undated
+entries on top.
+
+The service worker (`src/sw/index.ts`, scaffold) adds a `NavigationRoute`
+serving the precached `index.html`, so reloading any route works offline.
+
 ---
 
 ## 8. Analytics (Auswertung)
@@ -296,7 +341,7 @@ All derived in `src/lib/analytics.ts` as pure, unit-tested functions over
 - **KPIs**: count · Σ liters · Σ cost · weighted Ø price = `Σtotal / Σliters`
   · cheapest / most expensive €/l with date.
 - **Price chart** (chart.js line): `pricePerLiter` over `date`, entries with
-  both values, ascending; ≥ 2 points required.
+  both values, ascending (ties by time, then `createdAt`); ≥ 2 points required.
 - **Cost chart** (chart.js bar): Σ `total` grouped by `YYYY-MM`, label
   `Mär 26` style.
 - **Consumption** (only when ≥ 2 entries have `odometer` *and* `liters`):
@@ -320,7 +365,7 @@ Base: the web-base layout system unchanged. `theme.css` is copied verbatim;
 the only edit is the per-app accent:
 
 ```css
---accent-h: 55; /* amber — fuel/petrol */
+--accent-h: 110; /* Frischgrün — Verbrauch/Effizienz */
 ```
 
 **Documented deviation — "receipt treatment"** (additive utility classes
@@ -334,6 +379,12 @@ stays clean):
 - KPI rows on Auswertung use a dotted leader between label and value
   (flex + `border-dotted` spacer).
 
+Charts read the theme tokens at render time and convert them to rgba
+(chart.js cannot parse `oklch()`); they follow the effective theme by
+watching `data-theme` on `<html>` and `prefers-color-scheme` directly.
+Axes and tooltips are `de-DE` formatted; each canvas carries a text
+summary as its `aria-label`.
+
 The full "Thermobon" skin of the prototype (paper background, watermark,
 zigzag tear edge) is deliberately **not** ported — it conflicts with the
 shared design language and dark mode.
@@ -345,9 +396,13 @@ shared design language and dark mode.
 - **CSV export** (Belege page): semicolon-separated, `,` decimal separator,
   UTF-8 BOM (Excel-DE friendly), filename `tankzettel.csv`. Columns:
   `Datum;Zeit;Tankstelle;Ort;Kraftstoff;Liter;Preis_EUR_pro_Liter;Betrag_EUR;km_Stand`.
+  Text fields starting with `= + - @` get a leading `'` (no formula injection
+  from receipt text or imported data).
 - **JSON backup** (Einstellungen): export `{ "version": 1, "exportedAt": …,
-  "entries": FuelEntry[] }` as download; import merges by `id`
-  (newer `updatedAt` wins) and reports counts. This is the only safeguard
+  "entries": FuelEntry[] }` as download (`tankzettel-backup-YYYY-MM-DD.json`);
+  import validates and rebuilds every record field by field (drops and
+  counts malformed ones), merges by `id` (newer `updatedAt` wins) and
+  reports counts including the dropped records. This is the only safeguard
   against IndexedDB eviction until sync exists — keep it prominent.
 - **Privacy** (README + a short paragraph in Einstellungen): all data stays
   on-device; a receipt photo leaves the device only when extraction runs, to

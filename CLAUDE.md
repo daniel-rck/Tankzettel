@@ -19,7 +19,7 @@ speichern, auswerten. Keine Accounts, kein Backend, keine Telemetrie.
 Vor jedem Commit grün halten:
 
 ```bash
-bun run lint        # Biome (check)
+bun run lint        # oxlint + oxfmt --check
 bun run typecheck   # tsc (App + SW)
 bun run test        # Vitest
 bun run build       # SPA + PWA
@@ -28,7 +28,7 @@ bun run build       # SPA + PWA
 ## Konventionen (gemäß web-base)
 
 - **Bun** als Runtime & Package-Manager (kein npm/yarn-Lockfile).
-- **Biome** für Lint + Format — eine Config, kein ESLint/Prettier.
+- **oxlint + oxfmt** für Lint + Format (`oxlint.base.json`/`.oxfmtrc.json` gehören web-base; App-Overrides in `.oxlintrc.json` bzw. `.prettierignore`) — kein ESLint/Prettier/Biome.
 - **TypeScript 7 strict** inkl. `noUncheckedIndexedAccess`;
   `verbatimModuleSyntax` (→ `import type`); `type` statt `interface`.
 - **Deutsche UI + README, englischer Quellcode** (Bezeichner, Kommentare,

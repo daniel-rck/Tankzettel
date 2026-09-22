@@ -15,7 +15,7 @@ export function hasPlausibilityIssue(
   return Math.abs(Math.round(liters * pricePerLiter * 100) - Math.round(total * 100)) > 5;
 }
 
-/** Non-blocking check: same date and total within 1 ct of an existing entry. */
+/** Non-blocking check: same date and same total (to the cent) as an existing entry. */
 export function isLikelyDuplicate(
   candidate: { date: string | null; total: number | null },
   entries: FuelEntry[],
@@ -28,7 +28,8 @@ export function isLikelyDuplicate(
       entry.id !== excludeId &&
       entry.date === date &&
       entry.total !== null &&
-      Math.abs(entry.total - total) < 0.01,
+      // Whole cents: 50.01 - 50 is 0.00999… in IEEE 754, i.e. "< 1 ct".
+      Math.round(entry.total * 100) === Math.round(total * 100),
   );
 }
 

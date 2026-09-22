@@ -3,6 +3,8 @@ import { ExtractionError, errorKindFromStatus } from "./errors.ts";
 import { EXTRACTION_PROMPT } from "./prompt.ts";
 
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+// A hung request would block the strictly sequential queue forever.
+const REQUEST_TIMEOUT_MS = 60_000;
 
 export type GeminiSettings = {
   apiKey: string;
@@ -43,11 +45,60 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function normalizeResult(raw: unknown): ExtractionResult {
+/**
+ * The model does not always honour the ISO hint: accept "YYYY-MM-DD" and the
+ * German "DD.MM.YYYY", drop anything else — a malformed value would render as
+ * an empty <input type="date"> yet still be saved.
+ */
+export function normalizeDate(value: unknown): string | null {
+  const text = asString(value);
+  if (text === null) return null;
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+  const german = /^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/.exec(text);
+  let year: number;
+  let month: number;
+  let day: number;
+  if (iso) {
+    [year, month, day] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
+  } else if (german) {
+    const rawYear = Number(german[3]);
+    [year, month, day] = [
+      rawYear < 100 ? 2000 + rawYear : rawYear,
+      Number(german[2]),
+      Number(german[1]),
+    ];
+  } else {
+    return null;
+  }
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (
+    probe.getUTCFullYear() !== year ||
+    probe.getUTCMonth() !== month - 1 ||
+    probe.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** "9:30", "09.30", "09:30:15" → "09:30"; anything else → null. */
+export function normalizeTime(value: unknown): string | null {
+  const text = asString(value);
+  if (text === null) return null;
+  const match = /^(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?$/.exec(text);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = match[3] === undefined ? 0 : Number(match[3]);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+export function normalizeResult(raw: unknown): ExtractionResult {
   const obj = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
   return {
-    date: asString(obj.date),
-    time: asString(obj.time),
+    date: normalizeDate(obj.date),
+    time: normalizeTime(obj.time),
     station: asString(obj.station),
     location: asString(obj.location),
     fuelType: asString(obj.fuelType),
@@ -97,6 +148,7 @@ export async function extractReceipt(
           "x-goog-api-key": settings.apiKey,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       },
     );
   } catch {
@@ -120,14 +172,27 @@ export async function extractReceipt(
   }
 }
 
-/** Minimal authenticated request to validate an API key ("Key testen"). */
-export async function testApiKey(settings: GeminiSettings): Promise<boolean> {
+export type KeyTestResult = "ok" | "invalid" | "model" | "unavailable" | "network";
+
+/**
+ * Minimal authenticated request to validate an API key ("Key testen").
+ * Distinguishes a bad key from an unknown model and from being offline, so
+ * the user isn't sent to fix the wrong thing.
+ */
+export async function testApiKey(settings: GeminiSettings): Promise<KeyTestResult> {
+  let response: Response;
   try {
-    const response = await fetch(`${API_BASE}/models/${encodeURIComponent(settings.model)}`, {
+    response = await fetch(`${API_BASE}/models/${encodeURIComponent(settings.model)}`, {
       headers: { "x-goog-api-key": settings.apiKey },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-    return response.ok;
   } catch {
-    return false;
+    return "network";
   }
+  if (response.ok) return "ok";
+  const kind = errorKindFromStatus(response.status);
+  if (kind === "model") return "model";
+  if (kind === "auth") return "invalid";
+  // 429/5xx: Gemini answered, so the device is online and the key may be fine.
+  return "unavailable";
 }
