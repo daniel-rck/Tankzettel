@@ -31,6 +31,7 @@ describe("normalizeTime", () => {
 
   it("drops invalid times", () => {
     expect(normalizeTime("25:00")).toBeNull();
+    expect(normalizeTime("09:30:99")).toBeNull();
     expect(normalizeTime("2:32 PM")).toBeNull();
     expect(normalizeTime("")).toBeNull();
   });

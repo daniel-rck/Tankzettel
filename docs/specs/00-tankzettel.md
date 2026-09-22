@@ -225,8 +225,9 @@ Key/model errors ("config errors") also link to Einstellungen, and end the
 current drain pass: the remaining jobs would fail identically, so they stay
 `pending` until the settings change or the user retries.
 
-"Key testen" distinguishes *ok*, *Key ungültig*, *Modell nicht gefunden* and
-*Keine Verbindung* — being offline must not read as a bad key.
+"Key testen" distinguishes *ok*, *Key ungültig*, *Modell nicht gefunden*,
+*Gemini nicht verfügbar* (429/5xx) and *Keine Verbindung* — being offline or
+rate-limited must not read as a bad key.
 
 ---
 
@@ -293,6 +294,9 @@ failed jobs, and manual entry.
   `id`/`createdAt`/`source` are preserved, `updatedAt` is bumped via
   `updateEntry()`, the duplicate check excludes the entry itself, and the
   primary action reads "Speichern" instead of "Übernehmen".
+- A card keeps one entry id across save attempts, so a retry after a
+  half-completed save (entry written, scan job not deleted) overwrites
+  instead of duplicating.
 - The card is a `<form>` (Enter saves); warnings sit in a polite live
   region; a failed save shows "Speichern fehlgeschlagen". A card the user
   opens (manual entry, edit) takes focus; closing an edit returns focus to

@@ -18,10 +18,14 @@ describe("backup round-trip", () => {
         { ...makeEntry(), date: "05.03.2026" },
         { ...makeEntry(), source: "sync" },
         { ...makeEntry(), total: { amount: 50 } },
+        { ...makeEntry(), date: "2026-02-31" },
+        { ...makeEntry(), time: "25:99" },
+        { ...makeEntry(), total: -50 },
+        { ...makeEntry(), odometer: 123.456 },
         "not an object",
       ],
     });
-    expect(parseBackup(text)).toEqual({ entries: [good], invalid: 5 });
+    expect(parseBackup(text)).toEqual({ entries: [good], invalid: 9 });
   });
 
   it("fills omitted optional fields instead of storing undefined", () => {

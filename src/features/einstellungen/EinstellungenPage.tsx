@@ -31,6 +31,7 @@ type KeyTestState = "idle" | "testing" | KeyTestResult;
 const KEY_TEST_FAILURE: Record<Exclude<KeyTestResult, "ok">, string> = {
   invalid: "Key ungültig",
   model: "Modell nicht gefunden — Modell-ID prüfen",
+  unavailable: "Gemini gerade nicht verfügbar (Rate-Limit/Server) — später erneut testen",
   network: "Keine Verbindung — später erneut testen",
 };
 
@@ -209,7 +210,7 @@ export function EinstellungenPage() {
                 <CheckCircle2 size={16} aria-hidden="true" /> Key funktioniert
               </span>
             ) : null}
-            {keyTest === "invalid" || keyTest === "model" || keyTest === "network" ? (
+            {keyTest !== "idle" && keyTest !== "testing" && keyTest !== "ok" ? (
               <span className="flex items-center gap-1 text-sm text-danger">
                 <XCircle size={16} aria-hidden="true" /> {KEY_TEST_FAILURE[keyTest]}
               </span>

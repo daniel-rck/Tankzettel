@@ -1,6 +1,7 @@
 import { getDB, notifyMutation } from "../db/db.ts";
 import { requestPersistentStorage } from "../db/entries.ts";
 import type { FuelEntry } from "../db/types.ts";
+import { normalizeDate, normalizeTime } from "../gemini/extract.ts";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -27,14 +28,30 @@ export function createBackup(entries: FuelEntry[]): string {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
 
-function nullableNumber(value: unknown): number | null | undefined {
+/** Receipt amounts are never negative; the odometer is whole kilometres. */
+function nullableNumber(
+  value: unknown,
+  { integer = false }: { integer?: boolean } = {},
+): number | null | undefined {
   if (value === null || value === undefined) return null;
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
+  if (integer && !Number.isInteger(value)) return undefined;
+  return value;
 }
 
-function nullablePattern(value: unknown, pattern: RegExp): string | null | undefined {
+/**
+ * Accept only canonical values that also exist on the calendar / clock:
+ * "2026-02-31" or "25:99" have the right shape but are not valid entries.
+ */
+function nullableCanonical(
+  value: unknown,
+  pattern: RegExp,
+  normalize: (value: unknown) => string | null,
+): string | null | undefined {
   if (value === null || value === undefined || value === "") return null;
-  return typeof value === "string" && pattern.test(value) ? value : undefined;
+  return typeof value === "string" && pattern.test(value) && normalize(value) === value
+    ? value
+    : undefined;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -56,15 +73,15 @@ export function normalizeEntry(raw: unknown): FuelEntry | null {
   if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) return null;
   if (source !== "scan" && source !== "manual") return null;
 
-  const date = nullablePattern(obj.date, DATE_RE);
-  const time = nullablePattern(obj.time, TIME_RE);
+  const date = nullableCanonical(obj.date, DATE_RE, normalizeDate);
+  const time = nullableCanonical(obj.time, TIME_RE, normalizeTime);
   const station = optionalString(obj.station);
   const location = optionalString(obj.location);
   const fuelType = optionalString(obj.fuelType);
   const liters = nullableNumber(obj.liters);
   const pricePerLiter = nullableNumber(obj.pricePerLiter);
   const total = nullableNumber(obj.total);
-  const odometer = nullableNumber(obj.odometer);
+  const odometer = nullableNumber(obj.odometer, { integer: true });
   if (
     date === undefined ||
     time === undefined ||

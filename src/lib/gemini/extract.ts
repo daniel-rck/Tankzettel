@@ -85,11 +85,12 @@ export function normalizeDate(value: unknown): string | null {
 export function normalizeTime(value: unknown): string | null {
   const text = asString(value);
   if (text === null) return null;
-  const match = /^(\d{1,2})[:.](\d{2})(?:[:.]\d{2})?$/.exec(text);
+  const match = /^(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?$/.exec(text);
   if (!match) return null;
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
-  if (hours > 23 || minutes > 59) return null;
+  const seconds = match[3] === undefined ? 0 : Number(match[3]);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
@@ -171,7 +172,7 @@ export async function extractReceipt(
   }
 }
 
-export type KeyTestResult = "ok" | "invalid" | "model" | "network";
+export type KeyTestResult = "ok" | "invalid" | "model" | "unavailable" | "network";
 
 /**
  * Minimal authenticated request to validate an API key ("Key testen").
@@ -192,5 +193,6 @@ export async function testApiKey(settings: GeminiSettings): Promise<KeyTestResul
   const kind = errorKindFromStatus(response.status);
   if (kind === "model") return "model";
   if (kind === "auth") return "invalid";
-  return "network";
+  // 429/5xx: Gemini answered, so the device is online and the key may be fine.
+  return "unavailable";
 }

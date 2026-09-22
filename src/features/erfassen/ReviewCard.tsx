@@ -118,6 +118,10 @@ export function ReviewCard({
 }: ReviewCardProps) {
   const formId = useId();
   const [draft, setDraft] = useState<Draft>(() => toDraft(entry ?? initial));
+  // One id per card, not per save attempt: if the save half-succeeds (entry
+  // written, scan job not yet deleted) a retry overwrites the same entry
+  // instead of duplicating the receipt.
+  const [entryId] = useState(() => entry?.id ?? crypto.randomUUID());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [imageExpanded, setImageExpanded] = useState(false);
@@ -184,7 +188,7 @@ export function ReviewCard({
     try {
       const now = Date.now();
       await onSave({
-        id: entry?.id ?? crypto.randomUUID(),
+        id: entryId,
         date: draft.date || null,
         time: draft.time.trim() || null,
         station: draft.station.trim(),
