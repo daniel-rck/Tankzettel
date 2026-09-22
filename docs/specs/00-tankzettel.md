@@ -6,7 +6,7 @@ change when the design changes.
 Foundation: [`daniel-rck/web-base`](https://github.com/daniel-rck/web-base).
 This spec only describes what is *specific* to Tankzettel. Everything not
 mentioned here (stack, layout system, storage patterns, PWA setup, worker,
-CI, Biome, hygiene) follows the web-base skill and its `references/` verbatim.
+CI, oxlint + oxfmt, hygiene) follows the web-base skill and its `references/` verbatim.
 Scaffold with `bunx github:daniel-rck/web-base init`, then `add core`.
 
 A working prototype exists as a Claude.ai artifact (single-file React). Its

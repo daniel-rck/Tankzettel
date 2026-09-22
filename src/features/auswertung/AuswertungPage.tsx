@@ -38,7 +38,6 @@ export function AuswertungPage() {
   const consumption = useMemo(() => computeConsumption(entries), [entries]);
 
   // Theme-aware chart configs; re-created when data or theme changes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resolvedTheme forces re-reading the CSS variables
   const priceChart = useMemo<ChartConfiguration | null>(() => {
     if (points.length < 2) return null;
     const accent = themeColor("--color-accent-500");
@@ -71,7 +70,6 @@ export function AuswertungPage() {
     };
   }, [points, resolvedTheme]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resolvedTheme forces re-reading the CSS variables
   const costChart = useMemo<ChartConfiguration | null>(() => {
     if (monthly.length === 0) return null;
     const accent = themeColor("--color-accent-400");

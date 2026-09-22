@@ -117,7 +117,6 @@ export function ErfassenPage() {
         tabIndex={-1}
       />
 
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: drop target wraps a real button */}
       <div
         onDrop={onDrop}
         onDragOver={(event) => {

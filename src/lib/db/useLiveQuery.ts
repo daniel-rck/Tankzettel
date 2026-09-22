@@ -21,6 +21,7 @@ export function useLiveQuery<T>(
     error: undefined,
   });
   const queryRef = useRef(query);
+  // oxlint-disable-next-line react/refs -- latest-ref: the effect must call the newest `query` without re-subscribing on every render
   queryRef.current = query;
 
   useEffect(() => {
@@ -59,15 +60,16 @@ export function useLiveQuery<T>(
     const names = Array.from(new Set([`db:${storeName}`, "db:*"]));
     const channels = names.map((name) => new BroadcastChannel(name));
     for (const channel of channels) {
-      channel.onmessage = () => {
+      channel.addEventListener("message", () => {
         run();
-      };
+      });
     }
 
     return () => {
       cancelled = true;
       for (const channel of channels) channel.close();
     };
+    // oxlint-disable-next-line react/exhaustive-deps, react/exhaustive-effect-dependencies -- `deps` is the caller's dependency list, forwarded as-is
   }, [storeName, ...deps]);
 
   return state;

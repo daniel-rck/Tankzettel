@@ -1,5 +1,5 @@
 import { AlertTriangle, RotateCcw, Trash2 } from "lucide-react";
-import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useId, useState } from "react";
 import { getDB, useLiveQuery } from "../../lib/db/index.ts";
 import type { EntrySource, ExtractionResult, FuelEntry } from "../../lib/db/types.ts";
 import { Badge, Button, Card } from "../../lib/ui/index.ts";
@@ -57,7 +57,6 @@ function toDraft(
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    // biome-ignore lint/a11y/noLabelWithoutControl: the input is always passed as children
     <label className="flex flex-col gap-1 text-sm">
       <span className="text-fg-muted">{label}</span>
       {children}
@@ -83,15 +82,20 @@ export function ReviewCard({
   const formId = useId();
   const [draft, setDraft] = useState<Draft>(() => toDraft(entry ?? initial));
   const [saving, setSaving] = useState(false);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageExpanded, setImageExpanded] = useState(false);
 
-  useEffect(() => {
-    if (!image) return;
-    const url = URL.createObjectURL(image);
-    setImageUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [image]);
+  // The object URL lives exactly as long as the <img> is attached to this
+  // blob: a ref callback with cleanup (React 19) creates and revokes it
+  // without a state round-trip.
+  const attachImage = useCallback(
+    (img: HTMLImageElement | null) => {
+      if (!img || !image) return;
+      const url = URL.createObjectURL(image);
+      img.src = url;
+      return () => URL.revokeObjectURL(url);
+    },
+    [image],
+  );
 
   const { data: entries } = useLiveQuery("entries", async () => {
     const db = await getDB();
@@ -104,9 +108,10 @@ export function ReviewCard({
   const odometer = parseDecimal(draft.odometer);
 
   const showPlausibilityWarning = hasPlausibilityIssue(liters, pricePerLiter, total);
-  const showDuplicateWarning = useMemo(
-    () => isLikelyDuplicate({ date: draft.date || null, total }, entries ?? [], entry?.id),
-    [draft.date, total, entries, entry?.id],
+  const showDuplicateWarning = isLikelyDuplicate(
+    { date: draft.date || null, total },
+    entries ?? [],
+    entry?.id,
   );
   const saveable = canSave(liters, total);
 
@@ -163,7 +168,7 @@ export function ReviewCard({
         </p>
       ) : null}
 
-      {imageUrl ? (
+      {image ? (
         <button
           type="button"
           onClick={() => setImageExpanded((current) => !current)}
@@ -171,7 +176,7 @@ export function ReviewCard({
           className="mb-3 block cursor-zoom-in rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500"
         >
           <img
-            src={imageUrl}
+            ref={attachImage}
             alt="Foto des Tankbelegs"
             className={`rounded-md border border-border object-contain ${
               imageExpanded ? "max-h-none" : "max-h-48"

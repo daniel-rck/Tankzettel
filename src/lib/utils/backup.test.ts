@@ -9,9 +9,11 @@ describe("backup round-trip", () => {
   });
 
   it("rejects invalid JSON and wrong versions", () => {
-    expect(() => parseBackup("not json")).toThrow();
-    expect(() => parseBackup(JSON.stringify({ version: 2, entries: [] }))).toThrow();
-    expect(() => parseBackup(JSON.stringify({ entries: [] }))).toThrow();
+    expect(() => parseBackup("not json")).toThrow("kein gültiges JSON");
+    expect(() => parseBackup(JSON.stringify({ version: 2, entries: [] }))).toThrow(
+      "version 1 erwartet",
+    );
+    expect(() => parseBackup(JSON.stringify({ entries: [] }))).toThrow("version 1 erwartet");
   });
 });
 
@@ -28,7 +30,7 @@ describe("mergeEntries", () => {
     ];
     const { toWrite, report } = mergeEntries(existing, imported);
     expect(report).toEqual({ added: 1, updated: 1, skipped: 1 });
-    expect(toWrite.map((entry) => entry.id).sort()).toEqual(["a", "c"]);
+    expect(toWrite.map((entry) => entry.id).toSorted()).toEqual(["a", "c"]);
     expect(toWrite.find((entry) => entry.id === "a")?.station).toBe("Neu");
   });
 });

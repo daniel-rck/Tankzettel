@@ -30,9 +30,8 @@ export const router = createBrowserRouter([
       {
         path: ROUTES.einstellungen,
         lazy: async () => {
-          const { EinstellungenPage } = await import(
-            "../features/einstellungen/EinstellungenPage.tsx"
-          );
+          const { EinstellungenPage } =
+            await import("../features/einstellungen/EinstellungenPage.tsx");
           return { Component: EinstellungenPage };
         },
       },
