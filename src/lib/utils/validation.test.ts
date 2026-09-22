@@ -27,7 +27,7 @@ describe("hasPlausibilityIssue", () => {
 describe("isLikelyDuplicate", () => {
   const existing = [makeEntry({ id: "a", date: "2026-03-05", total: 54.67 })];
 
-  it("flags same date and total within 1 ct", () => {
+  it("flags same date and the same total to the cent", () => {
     expect(isLikelyDuplicate({ date: "2026-03-05", total: 54.67 }, existing)).toBe(true);
     expect(isLikelyDuplicate({ date: "2026-03-05", total: 54.671 }, existing)).toBe(true);
   });
@@ -35,6 +35,11 @@ describe("isLikelyDuplicate", () => {
   it("ignores different dates or totals", () => {
     expect(isLikelyDuplicate({ date: "2026-03-06", total: 54.67 }, existing)).toBe(false);
     expect(isLikelyDuplicate({ date: "2026-03-05", total: 54.69 }, existing)).toBe(false);
+  });
+
+  it("treats totals 1 ct apart as different despite float artifacts", () => {
+    const fifty = [makeEntry({ id: "b", date: "2026-03-05", total: 50 })];
+    expect(isLikelyDuplicate({ date: "2026-03-05", total: 50.01 }, fifty)).toBe(false);
   });
 
   it("ignores null fields and the excluded entry itself", () => {

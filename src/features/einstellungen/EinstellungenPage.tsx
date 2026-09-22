@@ -14,7 +14,7 @@ import { DEFAULT_MODEL, testApiKey } from "../../lib/gemini/index.ts";
 import { drainQueue } from "../../lib/queue/processor.ts";
 import { getApiKey, getModel, setApiKey, setModel } from "../../lib/settings.ts";
 import { Button, Card, PageHeader, Spinner } from "../../lib/ui/index.ts";
-import { BACKUP_FILENAME, createBackup, importBackup } from "../../lib/utils/backup.ts";
+import { backupFilename, createBackup, importBackup } from "../../lib/utils/backup.ts";
 
 const INPUT_CLASS =
   "h-10 w-full rounded-md border border-border bg-surface px-3 text-sm text-fg " +
@@ -44,7 +44,7 @@ export function EinstellungenPage() {
 
   async function handleKeyTest(): Promise<void> {
     setKeyTest("testing");
-    const ok = await testApiKey({ apiKey: getApiKey(), model: getModel() });
+    const ok = (await testApiKey({ apiKey: getApiKey(), model: getModel() })) === "ok";
     setKeyTest(ok ? "ok" : "fail");
   }
 
@@ -55,7 +55,7 @@ export function EinstellungenPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = BACKUP_FILENAME;
+    anchor.download = backupFilename();
     anchor.click();
     URL.revokeObjectURL(url);
   }

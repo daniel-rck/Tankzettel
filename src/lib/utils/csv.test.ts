@@ -45,4 +45,9 @@ describe("entriesToCsv", () => {
     const csv = entriesToCsv([makeEntry({ station: "Tank; Rast" })]);
     expect(csv).toContain('"Tank; Rast"');
   });
+
+  it("neutralises spreadsheet formulas in text fields", () => {
+    const csv = entriesToCsv([makeEntry({ station: "=HYPERLINK(1)", location: "-Ost" })]);
+    expect(csv).toContain(";'=HYPERLINK(1);'-Ost;");
+  });
 });

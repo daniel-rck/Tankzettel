@@ -261,4 +261,56 @@ describe("scan queue state machine", () => {
     expect((await getJob(newer.id))?.status).toBe("review");
     expect(order).toHaveLength(2);
   });
+
+  it("stops the pass on a bad key instead of failing every job", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", { status: 403 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = await putJob({ createdAt: 1 });
+    const second = await putJob({ createdAt: 2 });
+    await drainQueue();
+
+    expect((await getJob(first.id))?.status).toBe("failed");
+    expect((await getJob(second.id))?.status).toBe("pending");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("404 → failed with a model hint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", { status: 404 })),
+    );
+
+    const job = await putJob();
+    await drainQueue();
+
+    const updated = await getJob(job.id);
+    expect(updated?.status).toBe("failed");
+    expect(updated?.lastError).toContain("Modell nicht gefunden");
+  });
+
+  it("a sooner retry deadline replaces a later backoff timer", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response("{}", { status: 429 })) // A: 2 min backoff
+        .mockRejectedValueOnce(new TypeError("fetch failed")) // B: 30 s retry
+        .mockResolvedValue(geminiResponse({ total: 1 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const a = await putJob({ createdAt: 1 });
+      const b = await putJob({ createdAt: 2 });
+      await drainQueue();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      // After 30 s only B is due; it must not wait behind A's 2 min timer.
+      // No manual drain here: only the armed timer may pick B up.
+      await vi.advanceTimersByTimeAsync(31_000);
+      await vi.waitFor(async () => expect((await getJob(b.id))?.status).toBe("review"));
+      expect((await getJob(a.id))?.status).toBe("pending");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
